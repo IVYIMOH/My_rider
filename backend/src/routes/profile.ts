@@ -14,7 +14,9 @@ profileRouter.use(requireAuth);
 
 profileRouter.get('/', (req, res) => {
 	const user = db
-		.prepare('SELECT id, name, email, phone, role, status, email_verified, created_at FROM users WHERE id = ?')
+		.prepare(
+			'SELECT id, name, email, phone, role, status, email_verified, phone_verified, created_at FROM users WHERE id = ?'
+		)
 		.get(req.user!.id) as Record<string, unknown>;
 	const driver = db.prepare('SELECT * FROM drivers WHERE user_id = ?').get(req.user!.id) as
 		| Record<string, unknown>
@@ -29,6 +31,7 @@ profileRouter.get('/', (req, res) => {
 			role: user.role,
 			status: user.status,
 			emailVerified: user.email_verified === 1,
+			phoneVerified: user.phone_verified === 1,
 			createdAt: user.created_at,
 			driver: driver
 				? {

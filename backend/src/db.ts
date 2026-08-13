@@ -14,12 +14,13 @@ db.exec(`
 CREATE TABLE IF NOT EXISTS users (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	name TEXT NOT NULL,
-	email TEXT NOT NULL UNIQUE,
-	phone TEXT,
+	email TEXT UNIQUE,
+	phone TEXT UNIQUE,
 	password_hash TEXT NOT NULL,
 	role TEXT NOT NULL CHECK (role IN ('tourist','driver','admin')),
 	status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','pending','suspended')),
 	email_verified INTEGER NOT NULL DEFAULT 0,
+	phone_verified INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -99,13 +100,45 @@ CREATE INDEX IF NOT EXISTS idx_rides_driver ON rides(driver_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 `);
 
+// Migration: phone-first identity. Pre-existing databases have email NOT NULL
+// (and may lack phone_verified). Rebuild users to allow email-less phone-only
+// accounts and track phone verification, preserving row ids so foreign keys
+// from other tables keep resolving.
+const userColumns = db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string; notnull: number }>;
+const emailColumn = userColumns.find((c) => c.name === 'email');
+if (emailColumn && emailColumn.notnull === 1) {
+	db.pragma('foreign_keys = OFF');
+	const rebuild = db.transaction(() => {
+		db.exec(`
+			CREATE TABLE users_new (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL,
+				email TEXT UNIQUE,
+				phone TEXT UNIQUE,
+				password_hash TEXT NOT NULL,
+				role TEXT NOT NULL CHECK (role IN ('tourist','driver','admin')),
+				status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','pending','suspended')),
+				email_verified INTEGER NOT NULL DEFAULT 0,
+				phone_verified INTEGER NOT NULL DEFAULT 0,
+				created_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+			INSERT INTO users_new (id, name, email, phone, password_hash, role, status, email_verified, phone_verified, created_at)
+				SELECT id, name, email, phone, password_hash, role, status, email_verified, COALESCE(phone_verified, 0), created_at FROM users;
+			DROP TABLE users;
+			ALTER TABLE users_new RENAME TO users;
+		`);
+	});
+	rebuild();
+	db.pragma('foreign_keys = ON');
+}
+
 function seed() {
 	const hasUsers = (db.prepare('SELECT COUNT(*) AS c FROM users').get() as { c: number }).c > 0;
 	if (hasUsers) return;
 
 	const insertUser = db.prepare(
-		`INSERT INTO users (name, email, phone, password_hash, role, status, email_verified)
-		 VALUES (@name, @email, @phone, @passwordHash, @role, @status, @emailVerified)`
+		`INSERT INTO users (name, email, phone, password_hash, role, status, email_verified, phone_verified)
+		 VALUES (@name, @email, @phone, @passwordHash, @role, @status, @emailVerified, @phoneVerified)`
 	);
 
 	const userIds: Record<string, number> = {};
@@ -117,7 +150,8 @@ function seed() {
 			passwordHash: hashPassword(password),
 			role,
 			status,
-			emailVerified: verified
+			emailVerified: verified,
+			phoneVerified: 1
 		});
 		userIds[key] = Number(info.lastInsertRowid);
 	};

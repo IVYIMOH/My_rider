@@ -124,7 +124,7 @@ adminRouter.patch('/drivers/:id', (req, res) => {
 
 adminRouter.get('/users', (_req, res) => {
 	const rows = db
-		.prepare('SELECT id, name, role, status, email_verified, created_at FROM users ORDER BY id')
+		.prepare('SELECT id, name, role, status, email_verified, phone_verified, phone, created_at FROM users ORDER BY id')
 		.all() as Array<Record<string, unknown>>;
 	res.json({
 		users: rows.map((r) => ({
@@ -133,7 +133,9 @@ adminRouter.get('/users', (_req, res) => {
 			role: capitalize(r.role as string),
 			status: capitalize(r.status as string) as UserStatus,
 			joinedAt: r.created_at as string,
-			emailVerified: r.email_verified === 1
+			emailVerified: r.email_verified === 1,
+			phoneVerified: r.phone_verified === 1,
+			phone: (r.phone as string | null) ?? undefined
 		}))
 	});
 });

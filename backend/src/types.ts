@@ -5,7 +5,7 @@ export type RideStatus = 'searching' | 'active' | 'completed' | 'cancelled';
 export interface PublicUser {
 	id: number;
 	name: string;
-	email: string;
+	email: string | null;
 	phone: string | null;
 	role: Role;
 	status: UserStatus;

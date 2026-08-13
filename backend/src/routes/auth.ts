@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { db } from '../db';
 import { err } from '../errors';
@@ -9,6 +10,9 @@ import { sendEmail } from '../lib/mailer';
 import { rateLimit } from '../lib/rateLimit';
 import { requireAuth } from '../middleware/auth';
 import { config } from '../config';
+import { normalizePhone, canVerify } from '../lib/phone';
+import { verifyMtn } from '../lib/mtn';
+import { verifySafaricom } from '../lib/daraja';
 import type { PublicUser } from '../types';
 
 export const authRouter = Router();
@@ -30,10 +34,15 @@ const emailSchema = z.object({ email: z.string().email() });
 
 const tokenSchema = z.object({ token: z.string().min(8).max(256) });
 
+const phoneLoginSchema = z.object({
+	phone: z.string().min(8).max(20),
+	role: z.enum(['tourist', 'driver']).optional()
+});
+
 function toPublicUser(row: {
 	id: number;
 	name: string;
-	email: string;
+	email: string | null;
 	phone: string | null;
 	role: PublicUser['role'];
 	status: PublicUser['status'];
@@ -126,6 +135,53 @@ authRouter.post('/login', (req, res) => {
 	}
 
 	res.json({ token: signToken({ id: row.id, role: row.role }), user: toPublicUser(row) });
+});
+
+authRouter.post('/phone-login', async (req, res) => {
+	const body = phoneLoginSchema.parse(req.body);
+	const phone = normalizePhone(body.phone);
+	if (!rateLimit(`phonelogin:${phone.e164}`, 10, 60 * 60 * 1000)) {
+		throw err.rateLimited('Too many attempts. Try again later.');
+	}
+
+	if (!config.phoneMock) {
+		if (!canVerify(phone.operator)) {
+			throw err.badRequest(
+				`Phone verification is not yet available for ${phone.operator} numbers.`,
+				'VERIFICATION_UNSUPPORTED'
+			);
+		}
+		const result =
+			phone.operator === 'mtn' ? await verifyMtn(phone.e164) : await verifySafaricom(phone.international);
+		if (!result.valid) {
+			throw err.badRequest('This phone number is not registered with the operator.', 'PHONE_NOT_REGISTERED');
+		}
+	}
+
+	const existing = db
+		.prepare(
+			'SELECT id, name, email, phone, role, status, email_verified, created_at FROM users WHERE phone = ?'
+		)
+		.get(phone.e164) as Parameters<typeof toPublicUser>[0] | undefined;
+
+	if (existing) {
+		if (existing.status === 'suspended') throw err.forbidden('This account has been suspended.');
+		if (existing.status === 'pending') throw err.forbidden('Your account is pending approval.');
+		res.json({ token: signToken({ id: existing.id, role: existing.role }), user: toPublicUser(existing) });
+		return;
+	}
+
+	const info = db
+		.prepare(
+			"INSERT INTO users (name, email, phone, password_hash, role, status, email_verified, phone_verified) VALUES ('Rider', NULL, ?, ?, ?, 'active', 0, 1)"
+		)
+		.run(phone.e164, hashPassword(randomBytes(24).toString('hex')), body.role ?? 'tourist');
+	const id = Number(info.lastInsertRowid);
+	const created = db
+		.prepare('SELECT id, name, email, phone, role, status, email_verified, created_at FROM users WHERE id = ?')
+		.get(id) as Parameters<typeof toPublicUser>[0];
+
+	res.status(201).json({ token: signToken({ id, role: created.role }), user: toPublicUser(created) });
 });
 
 authRouter.get('/verify-email', (req, res) => {
