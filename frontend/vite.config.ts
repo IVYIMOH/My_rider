@@ -54,5 +54,10 @@ export default defineConfig({
 	],
 	server: {
 		port: 5173
+	},
+	ssr: {
+		// @googlemaps/js-api-loader is CommonJS; bundle it so named imports
+		// (Loader) resolve during the dev-server SSR pass.
+		noExternal: ['@googlemaps/js-api-loader']
 	}
 });
