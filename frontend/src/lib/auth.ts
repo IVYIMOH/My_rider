@@ -4,7 +4,8 @@ import { http, ApiError } from './http';
 export interface FrontendUser {
 	id: number;
 	name: string;
-	email: string;
+	email: string | null;
+	phone: string | null;
 	role: string;
 }
 
@@ -56,6 +57,19 @@ export function login(email: string, password: string): Promise<FrontendUser> {
 	return http<{ token: string; user: FrontendUser }>('/api/auth/login', {
 		method: 'POST',
 		body: { email, password }
+	}).then(({ token, user }) => {
+		const next: Session = { token, user };
+		session.set(next);
+		persistSession(next);
+		return user;
+	});
+}
+
+/** Phone-based sign-in: verifies the number with the operator, then finds or creates the rider account. */
+export function phoneLogin(phone: string, role: 'tourist' | 'driver'): Promise<FrontendUser> {
+	return http<{ token: string; user: FrontendUser }>('/api/auth/phone-login', {
+		method: 'POST',
+		body: { phone, role }
 	}).then(({ token, user }) => {
 		const next: Session = { token, user };
 		session.set(next);

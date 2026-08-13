@@ -112,6 +112,16 @@ export async function getConversations(): Promise<Conversation[]> {
 	);
 }
 
-export async function getProfile(): Promise<{ profile: { id: number; name: string; email: string; role: string } }> {
+export async function getProfile(): Promise<{
+	profile: {
+		id: number;
+		name: string;
+		email: string;
+		phone: string | null;
+		role: string;
+		emailVerified: boolean;
+		phoneVerified: boolean;
+	};
+}> {
 	return http('/api/profile', { token: requireToken() });
 }

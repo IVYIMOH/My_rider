@@ -3,7 +3,9 @@
 	import BottomNav from '$lib/components/BottomNav.svelte';
 	import MapWrapper from '$lib/components/MapWrapper.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import PhoneLoginForm from '$lib/components/PhoneLoginForm.svelte';
 	import { getPricing, createRide } from '$lib/api';
+	import { isAuthenticated } from '$lib/auth';
 	import { ApiError } from '$lib/http';
 	import type { PricingConfig, VehicleClass } from '$lib/api';
 
@@ -13,6 +15,7 @@
 	let activeTab = $state('home');
 	let requesting = $state(false);
 	let requestError = $state<string | null>(null);
+	let phoneStep = $state(false);
 
 	let vehicleClasses = $state<VehicleClass[]>([]);
 	let config = $state<PricingConfig | null>(null);
@@ -76,6 +79,10 @@
 	});
 
 	async function confirmRequest() {
+		if (!isAuthenticated()) {
+			phoneStep = true;
+			return;
+		}
 		requesting = true;
 		requestError = null;
 		try {
@@ -214,15 +221,29 @@
 					</div>
 				{/if}
 
-				<!-- Primary Trigger Button Call Action -->
-				<button
-					type="button"
-					class="btn-primary w-full py-3.5 shrink-0"
-					disabled={requesting || pricingLoading || !!pricingError}
-					onclick={confirmRequest}
-				>
-					{requesting ? 'Requesting…' : 'Confirm Request'}
-				</button>
+				{#if phoneStep}
+					<div class="mb-4 shrink-0">
+						<PhoneLoginForm
+							role="tourist"
+							title="Verify your phone to request"
+							buttonLabel="Verify & request"
+							onSuccess={() => {
+								phoneStep = false;
+								confirmRequest();
+							}}
+						/>
+					</div>
+				{:else}
+					<!-- Primary Trigger Button Call Action -->
+					<button
+						type="button"
+						class="btn-primary w-full py-3.5 shrink-0"
+						disabled={requesting || pricingLoading || !!pricingError}
+						onclick={confirmRequest}
+					>
+						{requesting ? 'Requesting…' : 'Confirm Request'}
+					</button>
+				{/if}
 			</div>
 
 		{:else if flowStep === 'requested'}

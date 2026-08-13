@@ -3,7 +3,9 @@
 	import TopBar from '$lib/components/TopBar.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import PhoneGate from '$lib/components/PhoneGate.svelte';
 	import { getConversations } from '$lib/api';
+	import { isAuthenticated } from '$lib/auth';
 	import { ApiError } from '$lib/http';
 	import type { Conversation } from '$lib/api';
 
@@ -14,6 +16,7 @@
 	let errorCode = $state('');
 
 	async function load() {
+		if (!isAuthenticated()) return;
 		loading = true;
 		error = null;
 		errorCode = '';
@@ -40,8 +43,9 @@
 	}
 </script>
 
-<div class="app-frame flex flex-col h-full bg-white">
-	<TopBar title="Inbox" onBack={() => history.back()} />
+<PhoneGate role="tourist" title="Sign in to view your messages" onSuccess={load}>
+	<div class="app-frame flex flex-col h-full bg-white">
+		<TopBar title="Inbox" onBack={() => history.back()} />
 
 	<div class="flex-1 overflow-y-auto p-6">
 		{#if loading}
@@ -79,4 +83,5 @@
 	</div>
 
 	<BottomNav bind:activeTab />
-</div>
+	</div>
+</PhoneGate>

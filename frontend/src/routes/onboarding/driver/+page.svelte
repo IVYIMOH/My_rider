@@ -3,6 +3,7 @@
 	import TopBar from '$lib/components/TopBar.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { submitDriverOnboarding } from '$lib/api';
+	import { phoneLogin } from '$lib/auth';
 
 	let fullName = $state('Joseph Mwangi');
 	let phone = $state('+256 700 000 000');
@@ -17,6 +18,7 @@
 		error = null;
 		submitting = true;
 		try {
+			await phoneLogin(phone, 'driver');
 			await submitDriverOnboarding({
 				fullName,
 				phone,

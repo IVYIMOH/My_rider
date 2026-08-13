@@ -2,8 +2,10 @@
 	import BottomNav from '$lib/components/BottomNav.svelte';
 	import MapWrapper from '$lib/components/MapWrapper.svelte';
 	import ErrorState from '$lib/components/ErrorState.svelte';
+	import PhoneGate from '$lib/components/PhoneGate.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { getDriverMe, setDriverOnline } from '$lib/api';
+	import { isAuthenticated } from '$lib/auth';
 	import { ApiError } from '$lib/http';
 	import type { DriverMe } from '$lib/api';
 
@@ -17,6 +19,7 @@
 	const totalStars = 5;
 
 	async function load() {
+		if (!isAuthenticated()) return;
 		loading = true;
 		error = null;
 		errorCode = '';
@@ -63,9 +66,10 @@
 	}
 </script>
 
-<div class="app-frame">
+<PhoneGate role="driver" title="Driver sign in" onSuccess={load}>
+	<div class="app-frame">
 
-	<div class="flex items-center gap-2 px-6 pb-2 pt-1">
+		<div class="flex items-center gap-2 px-6 pb-2 pt-1">
 		<span class="h-2 w-2 rounded-full {online ? 'bg-success' : 'bg-text-muted'}"></span>
 		<span class="text-body-lg font-semibold text-text-primary">
 			{online ? "You're online" : "You're offline"}
@@ -156,4 +160,5 @@
 	</div>
 
 	<BottomNav />
-</div>
+	</div>
+</PhoneGate>
