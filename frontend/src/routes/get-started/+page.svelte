@@ -1,34 +1,105 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import StatusBar from '$lib/components/StatusBar.svelte';
 	import BottomNav from '$lib/components/BottomNav.svelte';
-	import GoogleMap from '$lib/components/GoogleMap.svelte';
+	import MapWrapper from '$lib/components/MapWrapper.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { getPricing, createRide } from '$lib/api';
+	import { ApiError } from '$lib/http';
+	import type { PricingConfig, VehicleClass } from '$lib/api';
 
 	// Svelte 5 states to manage user flow step-by-step
-	let flowStep = $state('empty'); // 'empty' | 'select_vehicle'
+	let flowStep = $state('empty'); // 'empty' | 'select_vehicle' | 'requested'
 	let selectedVehicle = $state('car');
 	let activeTab = $state('home');
+	let requesting = $state(false);
+	let requestError = $state<string | null>(null);
 
-	const vehicleClasses = [
-		{ id: 'car', name: 'Car / SUV', rate: '×1', seats: 'Up to 4 seats', price: 'USD 46.34' },
-		{ id: 'van', name: 'Van / Minibus', rate: '×1.25', seats: '9-14 seats', price: 'USD 58.17' },
-		{ id: 'coach', name: 'Coach bus', rate: '×1.6', seats: '15+ seats', price: 'USD 74.54' },
-		{ id: 'truck', name: 'Truck / 4×4 cargo', rate: '×1.8', seats: 'Heavy load', price: 'USD 83.61' }
-	];
+	let vehicleClasses = $state<VehicleClass[]>([]);
+	let config = $state<PricingConfig | null>(null);
+	let pricingLoading = $state(true);
+	let pricingError = $state<string | null>(null);
+	let pricingErrorCode = $state('');
+
+	// Sheraton Kampala → Entebbe Airport reference route
+	const routeKm = 41;
+	const routeMin = 62;
 
 	const locations = [
 		{ type: 'pickup', name: 'Sheraton Kampala Hotel', dot: '🟢' },
 		{ type: 'destination', name: 'Entebbe Airport Arrivals', dot: '🟠' }
 	];
+
+	function computeFare(vc: VehicleClass): number {
+		if (!config) return 0;
+		const raw =
+			(config.baseFare + config.perKm * routeKm + config.perMinute * routeMin) *
+			vc.multiplier *
+			config.bookingFee *
+			config.surgeMultiplier;
+		return Math.max(config.minimumFare, raw);
+	}
+
+	const fareFor = $derived.by(() => {
+		const map = new Map<string, number>();
+		for (const vc of vehicleClasses) map.set(vc.id, computeFare(vc));
+		return map;
+	});
+
+	const currency = $derived(config?.currency ?? 'USD');
+
+	function formatMoney(value: number): string {
+		return new Intl.NumberFormat('en', {
+			style: 'currency',
+			currency,
+			minimumFractionDigits: 2
+		}).format(value);
+	}
+
+	async function loadPricing() {
+		pricingLoading = true;
+		pricingError = null;
+		pricingErrorCode = '';
+		try {
+			const data = await getPricing();
+			config = data.config;
+			vehicleClasses = data.vehicleClasses;
+		} catch (e) {
+			pricingError = (e as Error).message;
+			pricingErrorCode = e instanceof ApiError ? e.code : '';
+		} finally {
+			pricingLoading = false;
+		}
+	}
+
+	$effect(() => {
+		loadPricing();
+	});
+
+	async function confirmRequest() {
+		requesting = true;
+		requestError = null;
+		try {
+			await createRide({
+				vehicleClassId: selectedVehicle,
+				pickup: locations[0].name,
+				destination: locations[1].name,
+				distanceKm: routeKm,
+				durationMin: routeMin
+			});
+			flowStep = 'requested';
+		} catch (e) {
+			requestError = (e as Error).message;
+		} finally {
+			requesting = false;
+		}
+	}
 </script>
 
 <div class="app-frame relative flex flex-col h-full bg-white overflow-hidden">
-	<StatusBar />
 
 	<!-- Absolute Floating Map Container Interface Component -->
 	<div class="w-full flex-1 relative min-h-0">
-		<GoogleMap 
+		<MapWrapper
 			markers={[
 				{ lat: 0.3476, lng: 32.5825, label: 'Sheraton Kampala' }
 			]}
@@ -55,8 +126,11 @@
 				</div>
 				<h3 class="text-body-lg font-semibold text-text-primary">No active ride request</h3>
 				<p class="text-caption text-text-muted mt-1 max-w-[200px]">Book a trusted taxi association driver right now.</p>
-				<button 
-					type="button" 
+				{#if requestError}
+					<p class="mt-2 rounded-xl bg-red-50 px-3 py-1.5 text-[11px] font-medium text-red-700">{requestError}</p>
+				{/if}
+				<button
+					type="button"
 					class="btn-primary mt-4 py-2.5 text-xs tracking-wide uppercase font-bold"
 					onclick={() => flowStep = 'select_vehicle'}
 				>
@@ -68,7 +142,7 @@
 			<!-- CASE B: Request Configurator Screen Tray Panel -->
 			<div class="absolute inset-x-0 bottom-0 z-20 bg-white rounded-t-3xl shadow-[0_-8px_30px_rgba(0,0,0,0.08)] border-t border-border p-5 flex flex-col max-h-[80%] overflow-y-auto no-scrollbar">
 				<div class="w-12 h-1 bg-slate-200 rounded-full mx-auto mb-4 shrink-0"></div>
-				
+
 				<!-- Heading Row -->
 				<div class="flex items-center justify-between mb-3 shrink-0">
 					<h3 class="text-caption font-bold uppercase tracking-wider text-text-muted">Select Vehicle</h3>
@@ -76,25 +150,38 @@
 				</div>
 
 				<!-- Grid Selection Array Layout Matrix -->
-				<div class="grid grid-cols-2 gap-2.5 mb-4 shrink-0">
-					{#each vehicleClasses as item}
-						<button 
-							type="button"
-							onclick={() => selectedVehicle = item.id}
-							class="p-3 border text-left rounded-xl transition-all duration-200 flex flex-col justify-between h-24
-							{selectedVehicle === item.id ? 'border-primary-teal bg-light-teal ring-1 ring-primary-teal/20' : 'border-border bg-white hover:bg-slate-50'}"
-						>
-							<div class="flex justify-between items-start w-full">
-								<span class="font-bold text-xs text-text-primary">{item.name}</span>
-								<span class="text-[10px] font-semibold opacity-70 {selectedVehicle === item.id ? 'text-deep-teal' : 'text-text-muted'}">{item.rate}</span>
-							</div>
-							<div>
-								<div class="text-[10px] text-text-muted font-medium">{item.seats}</div>
-								<div class="text-xs font-bold text-text-primary mt-0.5">{item.price}</div>
-							</div>
-						</button>
-					{/each}
-				</div>
+				{#if pricingLoading}
+					<div class="mb-4 grid grid-cols-2 gap-2.5 shrink-0">
+						{#each Array(4) as _}
+							<div class="h-24 animate-pulse rounded-xl bg-slate-100"></div>
+						{/each}
+					</div>
+				{:else if pricingError}
+					<div class="mb-4 shrink-0 rounded-xl border border-red-200 bg-red-50 p-3.5 text-caption font-medium text-red-700">
+						<p>Could not load fares: {pricingError}</p>
+						<button type="button" class="mt-2 font-semibold underline underline-offset-2" onclick={loadPricing}>Try again</button>
+					</div>
+				{:else}
+					<div class="grid grid-cols-2 gap-2.5 mb-4 shrink-0">
+						{#each vehicleClasses as item}
+							<button
+								type="button"
+								onclick={() => selectedVehicle = item.id}
+								class="p-3 border text-left rounded-xl transition-all duration-200 flex flex-col justify-between h-24
+								{selectedVehicle === item.id ? 'border-primary-teal bg-light-teal ring-1 ring-primary-teal/20' : 'border-border bg-white hover:bg-slate-50'}"
+							>
+								<div class="flex justify-between items-start w-full">
+									<span class="font-bold text-xs text-text-primary">{item.name}</span>
+									<span class="text-[10px] font-semibold opacity-70 {selectedVehicle === item.id ? 'text-deep-teal' : 'text-text-muted'}">&times;{item.multiplier}</span>
+								</div>
+								<div>
+									<div class="text-[10px] text-text-muted font-medium">{item.seats}</div>
+									<div class="text-xs font-bold text-text-primary mt-0.5">{formatMoney(fareFor.get(item.id) ?? 0)}</div>
+								</div>
+							</button>
+						{/each}
+					</div>
+				{/if}
 
 				<!-- Route Parameter Node Selection Block -->
 				<h3 class="text-caption font-bold uppercase tracking-wider text-text-muted mb-2 shrink-0">Selected Nodes</h3>
@@ -117,20 +204,43 @@
 						<p class="text-[10px] text-text-muted/70">Calculated via active Admin config tokens</p>
 					</div>
 					<p class="text-lg font-bold text-text-primary">
-						{vehicleClasses.find(v => v.id === selectedVehicle)?.price}
+						{pricingError ? '—' : formatMoney(fareFor.get(selectedVehicle) ?? 0)}
 					</p>
 				</div>
 
+				{#if requestError}
+					<div class="mb-4 shrink-0 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-caption font-medium text-red-700">
+						{requestError}
+					</div>
+				{/if}
+
 				<!-- Primary Trigger Button Call Action -->
-				<button 
-					type="button" 
+				<button
+					type="button"
 					class="btn-primary w-full py-3.5 shrink-0"
-					onclick={() => {
-						alert('Ride requested! Connecting with trusted local drivers...');
-						flowStep = 'empty';
-					}}
+					disabled={requesting || pricingLoading || !!pricingError}
+					onclick={confirmRequest}
 				>
-					Confirm Request
+					{requesting ? 'Requesting…' : 'Confirm Request'}
+				</button>
+			</div>
+
+		{:else if flowStep === 'requested'}
+			<!-- CASE C: Request Confirmed State -->
+			<div class="absolute bottom-4 inset-x-4 z-20 bg-white/95 backdrop-blur p-6 rounded-2xl shadow-xl border border-border text-center flex flex-col items-center">
+				<div class="w-12 h-12 bg-light-teal text-deep-teal rounded-full flex items-center justify-center text-xl mb-2">
+					<Icon name="check" size={24} class="text-primary-teal" />
+				</div>
+				<h3 class="text-body-lg font-semibold text-text-primary">Ride requested!</h3>
+				<p class="text-caption text-text-muted mt-1 max-w-[220px]">
+					Connecting with trusted local drivers. Your fare is {formatMoney(fareFor.get(selectedVehicle) ?? 0)}.
+				</p>
+				<button
+					type="button"
+					class="btn-primary mt-4 py-2.5 text-xs tracking-wide uppercase font-bold"
+					onclick={() => { flowStep = 'empty'; requestError = null; }}
+				>
+					Done
 				</button>
 			</div>
 		{/if}

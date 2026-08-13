@@ -1,30 +1,42 @@
-<script>
+<script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { Loader } from '@googlemaps/js-api-loader';
 
-	/**
-	 * @typedef {{ lat: number, lng: number, label?: string, color?: string }} MapMarker
-	 */
+	interface LatLng {
+		lat: number;
+		lng: number;
+	}
+
+	interface MapMarker extends LatLng {
+		label?: string;
+		color?: string;
+	}
 
 	let {
 		center = { lat: 0.3476, lng: 32.5825 }, // Kampala, Uganda
 		zoom = 12,
-		markers = /** @type {MapMarker[]} */ ([]),
-		path = /** @type {{lat:number,lng:number}[] | null} */ (null),
+		markers = [] as MapMarker[],
+		path = null as LatLng[] | null,
 		class: className = 'h-full w-full',
-		mapId = null
-	} = $props();
+		mapId = null as string | null
+	} = $props<{
+		center?: LatLng;
+		zoom?: number;
+		markers?: MapMarker[];
+		path?: LatLng[] | null;
+		class?: string;
+		mapId?: string | null;
+	}>();
 
-	/** @type {HTMLDivElement} */
-	let mapEl;
-	let map = $state(null);
+	let mapEl: HTMLDivElement | undefined = $state();
+	let map: google.maps.Map | null = $state(null);
 	let loadError = $state(false);
-	/** @type {any[]} */
-	let mapMarkers = [];
-	/** @type {any} */
-	let mapPolyline = null;
+	let mapMarkers: Array<{ map: google.maps.Map | null }> = [];
+	let mapPolyline: google.maps.Polyline | null = null;
+	let AdvancedMarkerElement: typeof google.maps.marker.AdvancedMarkerElement | null = null;
+	let Polyline: typeof google.maps.Polyline | null = null;
 
-	const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+	const apiKey: string = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 	// Muted, teal-tinted map theme so it matches the app's palette instead of
 	// default Google Maps saturated colors.
@@ -46,10 +58,12 @@
 		}
 		try {
 			const loader = new Loader({ apiKey, version: 'weekly' });
-			const { Map } = await loader.importLibrary('maps');
-			await loader.importLibrary('marker');
+			const mapsLib = await loader.importLibrary('maps');
+			const markerLib = await loader.importLibrary('marker');
+			Polyline = mapsLib.Polyline;
+			AdvancedMarkerElement = markerLib.AdvancedMarkerElement;
 
-			map = new Map(mapEl, {
+			map = new mapsLib.Map(mapEl!, {
 				center,
 				zoom,
 				disableDefaultUI: true,
@@ -67,9 +81,10 @@
 	});
 
 	function renderMarkers() {
-		if (!map) return;
-		mapMarkers.forEach((m) => (m.map = null));
-		mapMarkers = markers.map((m) => {
+		if (!map || !AdvancedMarkerElement) return;
+		const AME = AdvancedMarkerElement;
+		for (const m of mapMarkers) m.map = null;
+		mapMarkers = markers.map((m: MapMarker) => {
 			const pin = document.createElement('div');
 			pin.style.width = '16px';
 			pin.style.height = '16px';
@@ -78,7 +93,7 @@
 			pin.style.boxShadow = '0 1px 4px rgba(15,23,42,0.35)';
 			pin.style.background = m.color ?? '#149AA0';
 
-			return new google.maps.marker.AdvancedMarkerElement({
+			return new AME({
 				map,
 				position: { lat: m.lat, lng: m.lng },
 				title: m.label ?? '',
@@ -88,10 +103,10 @@
 	}
 
 	function renderPath() {
-		if (!map) return;
+		if (!map || !Polyline) return;
 		if (mapPolyline) mapPolyline.setMap(null);
 		if (path && path.length > 1) {
-			mapPolyline = new google.maps.Polyline({
+			mapPolyline = new Polyline({
 				path,
 				strokeColor: '#0D6F75',
 				strokeOpacity: 0.9,
@@ -112,7 +127,7 @@
 	});
 
 	onDestroy(() => {
-		mapMarkers.forEach((m) => (m.map = null));
+		for (const m of mapMarkers) m.map = null;
 		if (mapPolyline) mapPolyline.setMap(null);
 	});
 </script>

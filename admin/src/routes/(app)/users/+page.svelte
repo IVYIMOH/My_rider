@@ -1,31 +1,47 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import { getUsers, updateUserStatus } from '$lib/api';
+	import { ApiError } from '$lib/http';
 	import type { User, UserStatus } from '$lib/types';
 
 	let users = $state<User[]>([]);
 	let loading = $state(true);
-	let updating = $state<string | null>(null);
+	let updating = $state<number | null>(null);
+	let error = $state<string | null>(null);
+	let errorCode = $state('');
+
+	async function load() {
+		loading = true;
+		error = null;
+		errorCode = '';
+		try {
+			users = await getUsers();
+		} catch (e) {
+			error = (e as Error).message;
+			errorCode = e instanceof ApiError ? e.code : '';
+		} finally {
+			loading = false;
+		}
+	}
 
 	$effect(() => {
-		let cancelled = false;
-		(async () => {
-			const u = await getUsers();
-			if (!cancelled) {
-				users = u;
-				loading = false;
-			}
-		})();
-		return () => {
-			cancelled = true;
-		};
+		load();
 	});
 
 	async function setStatus(u: User, status: UserStatus) {
 		updating = u.id;
+		const prev = u.status;
 		u.status = status;
-		await updateUserStatus(u.id, status);
-		updating = null;
+		try {
+			await updateUserStatus(u.id, status);
+		} catch (e) {
+			u.status = prev;
+			error = (e as Error).message;
+			errorCode = e instanceof ApiError ? e.code : '';
+		} finally {
+			updating = null;
+		}
 	}
 
 	function initials(name: string) {
@@ -43,6 +59,8 @@
 			<div class="h-16 animate-pulse rounded-2xl bg-slate-100"></div>
 		{/each}
 	</div>
+{:else if error}
+	<ErrorState message={error} code={errorCode} retry={load} />
 {:else if users.length === 0}
 	<div class="card flex flex-col items-center justify-center py-12 text-center">
 		<div class="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-light-teal text-deep-teal">

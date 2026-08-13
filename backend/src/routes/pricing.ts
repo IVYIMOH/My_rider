@@ -1,0 +1,32 @@
+import { Router } from 'express';
+import { db } from '../db';
+import type { PricingConfig, VehicleClass } from '../types';
+
+export const pricingRouter = Router();
+
+function getConfigRow() {
+	const row = db.prepare('SELECT * FROM pricing WHERE id = 1').get() as Record<string, number | string>;
+	return {
+		currency: row.currency as string,
+		baseFare: row.base_fare as number,
+		perKm: row.per_km as number,
+		perMinute: row.per_minute as number,
+		bookingFee: row.booking_fee as number,
+		surgeMultiplier: row.surge_multiplier as number,
+		minimumFare: row.minimum_fare as number
+	} satisfies PricingConfig;
+}
+
+function getVehicleClasses(): VehicleClass[] {
+	return db
+		.prepare('SELECT id, name, multiplier, seats FROM vehicle_classes ORDER BY multiplier')
+		.all() as VehicleClass[];
+}
+
+pricingRouter.get('/pricing', (_req, res) => {
+	res.json({ config: getConfigRow(), vehicleClasses: getVehicleClasses() });
+});
+
+pricingRouter.get('/vehicle-classes', (_req, res) => {
+	res.json({ vehicleClasses: getVehicleClasses() });
+});

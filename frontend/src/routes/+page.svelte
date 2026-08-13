@@ -1,5 +1,4 @@
 <script>
-	import StatusBar from '$lib/components/StatusBar.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 
 	const roles = [
@@ -19,7 +18,6 @@
 </script>
 
 <div class="app-frame">
-	<StatusBar />
 
 	<div class="flex items-center gap-2 px-6 pt-2">
 		<div class="flex h-7 w-7 items-center justify-center rounded-full bg-primary-teal text-sm font-bold text-white">

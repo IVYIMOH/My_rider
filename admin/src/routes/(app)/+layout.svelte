@@ -2,12 +2,18 @@
 	import { redirect } from '@sveltejs/kit';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { session, isAuthenticated, logout } from '$lib/auth';
+	import { session, isAuthenticated, restoreSession, logout } from '$lib/auth';
 
 	let { children } = $props();
 
 	if (!isAuthenticated()) redirect(307, '/login');
+
+	onMount(async () => {
+		await restoreSession();
+		if (!isAuthenticated()) goto('/login');
+	});
 
 	const nav = [
 		{ href: '/overview', label: 'Overview', icon: 'dashboard' },

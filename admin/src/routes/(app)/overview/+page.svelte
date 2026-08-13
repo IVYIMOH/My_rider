@@ -1,22 +1,35 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
+	import ErrorState from '$lib/components/ErrorState.svelte';
 	import { getDrivers, getUsers } from '$lib/api';
+	import { ApiError } from '$lib/http';
 	import type { Driver, User } from '$lib/types';
 
 	let drivers = $state<Driver[]>([]);
 	let users = $state<User[]>([]);
 	let loading = $state(true);
+	let error = $state<string | null>(null);
+	let errorCode = $state('');
+
+	async function load() {
+		loading = true;
+		error = null;
+		errorCode = '';
+		try {
+			const [d, u] = await Promise.all([getDrivers(), getUsers()]);
+			drivers = d;
+			users = u;
+		} catch (e) {
+			error = (e as Error).message;
+			errorCode = e instanceof ApiError ? e.code : '';
+		} finally {
+			loading = false;
+		}
+	}
 
 	$effect(() => {
 		let cancelled = false;
-		(async () => {
-			const [d, u] = await Promise.all([getDrivers(), getUsers()]);
-			if (!cancelled) {
-				drivers = d;
-				users = u;
-				loading = false;
-			}
-		})();
+		load();
 		return () => {
 			cancelled = true;
 		};
@@ -57,6 +70,8 @@
 			<div class="h-24 animate-pulse rounded-2xl bg-slate-100"></div>
 		{/each}
 	</div>
+{:else if error}
+	<ErrorState message={error} code={errorCode} retry={load} />
 {:else}
 	<div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
 		{#each stats as s}
