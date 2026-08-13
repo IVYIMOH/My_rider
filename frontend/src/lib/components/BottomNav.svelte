@@ -25,6 +25,13 @@
 	</button>
 	<button 
 		type="button"
+		onclick={() => navigate('map', '/map')} 
+		class="flex flex-col items-center gap-0.5 flex-1 py-1 transition {activeTab === 'map' ? 'text-primary-teal font-semibold' : 'text-text-muted'}"
+	>
+		<span class="text-lg">📍</span><span class="text-[11px]">Map</span>
+	</button>
+	<button 
+		type="button"
 		onclick={() => navigate('messages', '/messages')} 
 		class="flex flex-col items-center gap-0.5 flex-1 py-1 transition {activeTab === 'messages' ? 'text-primary-teal font-semibold' : 'text-text-muted'}"
 	>
