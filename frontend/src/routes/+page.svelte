@@ -15,12 +15,6 @@
 			title: 'A Driver',
 			desc: 'Complete KYC and prove your taxi association membership.'
 		},
-		{
-			href: '/admin',
-			icon: 'shield',
-			title: 'Admin Panel',
-			desc: 'Approve users, verify drivers, set pricing.'
-		}
 	];
 </script>
 
