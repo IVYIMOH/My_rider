@@ -82,7 +82,30 @@
 					<p class="truncate text-body-lg font-semibold text-text-primary">{u.name}</p>
 					<p class="text-caption text-text-muted">
 						{u.role} · joined {u.joinedAt}
+						{#if u.phone}
+							· {u.phone}
+						{/if}
 					</p>
+					<div class="mt-1 flex items-center gap-1.5">
+						{#if u.emailVerified}
+							<span class="flex items-center gap-1 rounded-full bg-light-teal px-1.5 py-0.5 text-[10px] font-semibold text-deep-teal">
+								<Icon name="check" size={10} /> Email
+							</span>
+						{:else}
+							<span class="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-text-muted">
+								Email unverified
+							</span>
+						{/if}
+						{#if u.phoneVerified}
+							<span class="flex items-center gap-1 rounded-full bg-light-teal px-1.5 py-0.5 text-[10px] font-semibold text-deep-teal">
+								<Icon name="check" size={10} /> Phone
+							</span>
+						{:else}
+							<span class="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-text-muted">
+								Phone unverified
+							</span>
+						{/if}
+					</div>
 				</div>
 				<span class="chip {u.status === 'Active' ? 'chip-active' : ''}">{u.status}</span>
 				<div class="flex items-center gap-2">

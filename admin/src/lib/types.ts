@@ -35,6 +35,8 @@ export interface User {
 	status: UserStatus;
 	joinedAt: string;
 	emailVerified?: boolean;
+	phoneVerified?: boolean;
+	phone?: string;
 }
 
 export interface AuthUser {
