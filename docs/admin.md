@@ -267,10 +267,10 @@ sequenceDiagram
 | `.npmrc` | `engine-strict=true` |
 | `tsconfig.json` | strict, bundler resolution, `rewriteRelativeImportExtensions` |
 
-**Env vars:** only `VITE_API_BASE_URL` (default `http://localhost:8080`). No `.env`/`.env.example` present.
+**Env vars:** `VITE_API_BASE_URL` (default `http://localhost:8080`), optionally overridden in a gitignored `.env`.
 
-### Notes from the review
+### Implementation notes
 
-- Auth is enforced **client-side only** (redirect in the layout); there is no server-side protection because the app is a static SPA. The real enforcement is the backend's `requireAuth` + `requireRole('admin')`.
-- No automatic 401 handling in `http.ts` — a stale session is caught by `restoreSession()` in the layout and bounced to `/login`.
-- `backend/src/routes/admin.ts` implements exactly the endpoints this app calls, with `admin` role guard — the two sides are in sync.
+- Auth is enforced **client-side only** (redirect in the layout); there is no server-side protection because the app is a static SPA. The actual enforcement is the backend's `requireAuth` + `requireRole('admin')`.
+- A stale session is caught by `restoreSession()` in the layout, which clears it and returns to `/login`.
+- `backend/src/routes/admin.ts` implements exactly the endpoints this app calls, behind the `admin` role guard — the two sides are in sync.

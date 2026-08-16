@@ -286,7 +286,7 @@ flowchart LR
 - **Email (Gmail SMTP):** `mailer.ts` sends verification emails via Nodemailer using `SMTP_HOST/PORT/USER/PASS` + `MAIL_FROM`. When SMTP is unconfigured it logs to a `DEV EMAIL OUTBOX` instead. Links are built from `PUBLIC_BASE_URL` (default `http://localhost:5174`, the admin dev server).
 - **MTN Uganda** (`lib/mtn.ts`): verifies a `+256` number. Supports either OAuth client-credentials (token URL) or `Ocp-Apim-Subscription-Key` style; `{msisdn}` is substituted into `MTN_VERIFY_URL`. OAuth bearer tokens are cached in-memory.
 - **Safaricom Daraja (Kenya)** (`lib/daraja.ts`): verifies a `+254` number via `queryCustomerDetails`. Gets an OAuth bearer token (cached), RSA-encrypts the initiator password with `DARAJA_PUBLIC_CERT` (`RSA_PKCS1_PADDING`), posts to the query URL, and treats `ResponseCode === '0'` as verified.
-- **Phone normalization** (`lib/phone.ts`): parses and normalizes numbers to E.164; operator range tables decide whether a number is MTN (UG) or Safaricom (KE). `canVerify()` is true only for `mtn` and `safaricom`.
+- **Phone normalization** (`lib/phone.ts`): parses and normalizes numbers to E.164; operator range tables decide whether a number is MTN (UG) or Safaricom (KE). `canVerify()` is true only for `mtn` and `safaricom`. Phones are normalized to E.164 before storage and lookup in `phone-login`, `register`, and `profile` updates (and the seed data), so accounts match regardless of how the number is typed.
 - **Rate limiting** (`lib/rateLimit.ts`): in-memory fixed-window `Map` — used by `phone-login` (10/hr/phone) and `resend-verification` (3/hr).
 - **Fare calculation** (`lib/fares.ts`): see formula in [ARCHITECTURE.md](ARCHITECTURE.md) §5.
 

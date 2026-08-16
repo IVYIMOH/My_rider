@@ -22,7 +22,7 @@ My_rider/
 
 ## Quick start
 
-### 1. Backend (Express — the active API)
+### 1. Backend
 
 ```sh
 cd backend

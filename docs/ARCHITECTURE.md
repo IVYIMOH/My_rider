@@ -1,6 +1,6 @@
 # Sipi Rider — Architecture
 
-This document describes how the Sipi Rider platform is structured and how data flows through it. It is a **line-by-line review** of the codebase in this repository, written to match what the code actually does today.
+This document describes how the Sipi Rider platform is structured and how data flows through it, as implemented in this repository.
 
 Related docs:
 
@@ -38,7 +38,7 @@ flowchart LR
     H["Google Maps JS API"] -. "maps" .-> A
 ```
 
-Notes from the code review:
+Key characteristics:
 
 - Both web clients are **pure client-side SPAs** (`adapter-static` with `fallback: index.html`). There are no server-side load functions, hooks, or `+server.ts` routes anywhere — all data fetching happens in the browser.
 - Both clients share the **same HTTP client pattern** (`$lib/http.ts`) and default `API_BASE` of `http://localhost:8080`.
@@ -250,15 +250,16 @@ sequenceDiagram
     A-->>R: JWT
     R->>A: POST /api/rides {vehicleClassId, pickup, destination, ...}
     A->>DB: insert rides(status=searching)
-    A-->>R: ride created → "Ride requested!"
+    A-->>R: ride created
 
-    Note over D,A: Driver dispatch
-    D->>A: GET /api/rides/available (role=driver)
-    A-->>D: rides in searching state
+    Note over R,D: Live status (5s polling on both screens)
+    R->>A: GET /api/rides/:id (poll)
+    D->>A: GET /api/rides/available (poll, role=driver)
     D->>A: POST /api/rides/:id/accept
-    A->>DB: update status=active
+    A->>DB: status=active, driver_id set (single conditional UPDATE)
+    A-->>R: ride now active, includes assigned driver summary
     D->>A: POST /api/rides/:id/complete
-    A->>DB: update status=completed
+    A->>DB: status=completed
 ```
 
 **Fare formula** (`backend/src/lib/fares.ts`):
@@ -284,13 +285,15 @@ sequenceDiagram
 
     D->>API: POST /api/auth/phone-login (role=driver)
     API-->>D: JWT
+    D->>API: GET /api/vehicle-classes
+    API-->>D: vehicle classes (dropdown options)
     D->>API: POST /api/drivers/onboarding {fullName, phone, association, vehicleClassId}
     API->>DB: create/update drivers row (verified=0, pending)
-    API-->>D: done → /driver dashboard
+    API-->>D: "pending admin verification" → /driver dashboard
 
     Note over AD: Admin review
     AD->>API: GET /api/admin/drivers
-    API-->>AD: drivers with verified flags
+    API-->>AD: drivers with verified flags + association
     AD->>API: PATCH /api/admin/drivers/:id {verified: true}
     API->>DB: verified=1
     AD-->>AD: driver now shows "Verified" badge
@@ -300,7 +303,7 @@ sequenceDiagram
 
 ## 7. Messaging
 
-Conversations are pairwise (`user_a`, `user_b`) and created on demand. This is a simple REST message inbox — there is **no websocket/push layer** in the codebase.
+Conversations are pairwise (`user_a`, `user_b`) and created on demand — either from the inbox or from the "Chat with driver" button on an assigned ride. The rider app renders threads at `/messages/[id]` and polls them for new messages. This is a REST message system; there is **no websocket/push layer** in the codebase.
 
 ```mermaid
 flowchart LR
@@ -336,7 +339,7 @@ Admin flows, route-by-route, are documented in [admin.md](admin.md). Public pric
 
 ## 9. Backend consolidation note
 
-Until commit `5fca844` (chore: remove Go/Fiber prototype), `backend/` also contained a **Go/Fiber port of a previous prototype** (`backend/cmd/`, `backend/internal/`, `go.mod`, `go.sum`). Review findings recorded before removal:
+Until commit `5fca844` (chore: remove Go/Fiber prototype), `backend/` also contained a **Go/Fiber port of a previous prototype** (`backend/cmd/`, `backend/internal/`, `go.mod`, `go.sum`). The prototype's characteristics were:
 
 - Framework: **Fiber v2**, JWT (`golang-jwt`), SQLite (`mattn/go-sqlite3`, CGO), UUIDs.
 - Identity: **phone + OTP** with roles `citizen` / `driver` (no email/password, no admin).
@@ -351,12 +354,13 @@ Until commit `5fca844` (chore: remove Go/Fiber prototype), `backend/` also conta
 ## 10. Cross-cutting concerns
 
 - **State management:** each client keeps exactly one Svelte store — `session` (a JWT + user object) in `frontend/src/lib/auth.ts` and `admin/src/lib/auth.ts`. Persisted to `localStorage`.
-- **HTTP client:** a thin `fetch` wrapper (`http<T>()`) in both apps that injects `Authorization: Bearer` and normalizes errors into `ApiError { status, code, message }`.
+- **HTTP client:** a thin `fetch` wrapper (`http<T>()`) in both apps that injects `Authorization: Bearer` and normalizes errors into `ApiError { status, code, message }`. In the rider app, a `401` on a token-carrying request clears the session so the screen falls back to sign-in.
+- **Realtime:** no websockets/SSE. Live ride status and messages use short polling intervals (`setInterval`, ~5s) on the rider and driver screens.
 - **Rate limiting:** in-memory, fixed-window (`src/lib/rateLimit.ts`) — applied to `phone-login` (10/hr/phone) and `resend-verification` (3/hr). Not shared across processes; resets on restart.
-- **Caching:** token caches for MTN/Daraja OAuth bearer tokens (in-memory, refreshed before expiry). No Redis, no job queue, no websockets.
+- **Caching:** token caches for MTN/Daraja OAuth bearer tokens (in-memory, refreshed before expiry). No Redis, no job queue.
 - **PWA / offline:** the rider app registers a Workbox service worker (generateSW) and caches Google Maps scripts/tiles with a NetworkFirst strategy.
-- **Security notes from review:**
-  - `.env` (gitignored) contains what look like live MTN/Daraja credentials — rotate if genuine.
+- **Security considerations:**
+  - `.env` (gitignored) may hold live MTN/Daraja credentials; treat as sensitive.
   - `PHONE_MOCK=true` must be disabled in production.
 
 ---
@@ -372,10 +376,11 @@ My_rider/
 │   ├── admin.md
 │   └── backend.md
 ├── frontend/
-│   ├── capacitor.config.ts      # Capacitor 8 (android/ ios/)
+│   ├── capacitor.config.ts      # Capacitor 8 (app.sipirider / Sipi Rider, android/ ios/)
 │   ├── svelte.config.js         # adapter-static, SPA fallback
 │   ├── vite.config.ts           # Tailwind v4 + VitePWA + port 5173
-│   ├── tailwind.config.js       # legacy v3 tokens (app.css @theme is authoritative)
+│   ├── tailwind.config.js       # v3 config kept in sync with app.css @theme
+│   ├── static/icons/            # PWA icons (192/512/maskable)
 │   └── src/
 │       ├── app.css              # Tailwind v4 @theme + custom utilities
 │       ├── lib/                 # api.ts, auth.ts, http.ts, components/
