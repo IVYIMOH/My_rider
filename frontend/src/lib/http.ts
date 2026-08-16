@@ -45,6 +45,13 @@ export async function http<T>(path: string, options: HttpOptions = {}): Promise<
 		} catch {
 			// keep default
 		}
+		// A 401 on a request that carried a token means the session is no longer
+		// valid (expired, or the account no longer exists). Drop it so gated
+		// pages fall back to the phone sign-in instead of a dead error screen.
+		if (options.token && res.status === 401) {
+			const { logout } = await import('./auth');
+			logout();
+		}
 		throw new ApiError(failure);
 	}
 

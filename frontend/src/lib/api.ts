@@ -125,3 +125,7 @@ export async function getProfile(): Promise<{
 }> {
 	return http('/api/profile', { token: requireToken() });
 }
+
+export async function updateProfile(input: { name?: string; phone?: string }): Promise<void> {
+	await http('/api/profile', { method: 'PATCH', token: requireToken(), body: input });
+}
