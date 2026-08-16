@@ -156,14 +156,14 @@ function seed() {
 		userIds[key] = Number(info.lastInsertRowid);
 	};
 
-	user('admin', 'SipiRider Admin', 'admin@sipirider.com', '+256 700 000 001', 'admin1234', 'admin', 'active', 1);
-	user('tourist', 'Amara Boateng', 'tourist@sipirider.com', '+256 700 000 002', 'tourist1234', 'tourist', 'active', 1);
-	user('david', 'David Kim', 'david@sipirider.com', '+256 700 000 003', 'tourist1234', 'tourist', 'active', 1);
-	user('john', 'John Ochieng', 'john@sipirider.com', '+256 700 000 004', 'tourist1234', 'tourist', 'pending', 1);
-	user('peter', 'Peter Okello', 'driver@sipirider.com', '+256 700 111 222', 'driver1234', 'driver', 'active', 1);
-	user('joseph', 'Joseph Mwangi', 'joseph@sipirider.com', '+256 700 333 444', 'driver1234', 'driver', 'active', 1);
-	user('grace', 'Grace Alupo', 'grace@sipirider.com', '+256 700 555 666', 'driver1234', 'driver', 'active', 0);
-	user('sarah', 'Sarah Nakato', 'sarah@sipirider.com', '+256 700 777 888', 'driver1234', 'driver', 'pending', 1);
+	user('admin', 'SipiRider Admin', 'admin@sipirider.com', '+256700000001', 'admin1234', 'admin', 'active', 1);
+	user('tourist', 'Amara Boateng', 'tourist@sipirider.com', '+256700000002', 'tourist1234', 'tourist', 'active', 1);
+	user('david', 'David Kim', 'david@sipirider.com', '+256700000003', 'tourist1234', 'tourist', 'active', 1);
+	user('john', 'John Ochieng', 'john@sipirider.com', '+256700000004', 'tourist1234', 'tourist', 'pending', 1);
+	user('peter', 'Peter Okello', 'driver@sipirider.com', '+256700111222', 'driver1234', 'driver', 'active', 1);
+	user('joseph', 'Joseph Mwangi', 'joseph@sipirider.com', '+256700333444', 'driver1234', 'driver', 'active', 1);
+	user('grace', 'Grace Alupo', 'grace@sipirider.com', '+256700555666', 'driver1234', 'driver', 'active', 0);
+	user('sarah', 'Sarah Nakato', 'sarah@sipirider.com', '+256700777888', 'driver1234', 'driver', 'pending', 1);
 
 	const insertVc = db.prepare('INSERT INTO vehicle_classes (id, name, multiplier, seats) VALUES (@id, @name, @multiplier, @seats)');
 	insertVc.run({ id: 'car', name: 'Car / SUV', multiplier: 1, seats: 'Up to 4 seats' });

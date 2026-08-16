@@ -80,11 +80,19 @@ authRouter.post('/register', async (req, res) => {
 	if (exists) throw err.conflict('An account with this email already exists.', 'EMAIL_TAKEN');
 
 	const status = body.role === 'driver' ? 'pending' : 'active';
+	let phone: string | null = body.phone ?? null;
+	if (phone) {
+		try {
+			phone = normalizePhone(phone).e164;
+		} catch {
+			// keep the raw value if it cannot be normalized
+		}
+	}
 	const info = db
 		.prepare(
 			'INSERT INTO users (name, email, phone, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, 0)'
 		)
-		.run(body.name.trim(), email, body.phone ?? null, hashPassword(body.password), body.role, status);
+		.run(body.name.trim(), email, phone, hashPassword(body.password), body.role, status);
 
 	const userId = Number(info.lastInsertRowid);
 
