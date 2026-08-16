@@ -73,7 +73,7 @@
 @utility btn-primary {
   display: flex;
   width: 100%;
-  items-center: center;
+  align-items: center;
   justify-content: center;
   gap: 0.5rem;
   border-radius: 0.75rem;
@@ -117,6 +117,13 @@
   background-color: var(--color-light-teal);
   color: var(--color-deep-teal);
   font-weight: 600;
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @layer base {

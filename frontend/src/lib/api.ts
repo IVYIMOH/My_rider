@@ -86,14 +86,6 @@ export async function getVehicleClasses(): Promise<VehicleClass[]> {
 	return http<{ vehicleClasses: VehicleClass[] }>('/api/vehicle-classes').then((r) => r.vehicleClasses);
 }
 
-export async function estimateFare(
-	vehicleClassId: string,
-	distanceKm: number,
-	durationMin: number
-): Promise<{ estimatedFare: number; currency: string }> {
-	return http('/api/rides/estimate', { method: 'POST', body: { vehicleClassId, distanceKm, durationMin } });
-}
-
 export async function createRide(input: {
 	vehicleClassId: string;
 	pickup: string;

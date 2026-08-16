@@ -14,6 +14,7 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let errorCode = $state('');
+	let activeTab = $state('home');
 
 	let availableRides = $state<Ride[]>([]);
 	let activeRide = $state<Ride | null>(null);
@@ -270,6 +271,6 @@
 		{/if}
 	</div>
 
-	<BottomNav />
+	<BottomNav bind:activeTab />
 	</div>
 </PhoneGate>

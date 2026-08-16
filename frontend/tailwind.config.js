@@ -4,15 +4,15 @@ export default {
 	theme: {
 		extend: {
 			colors: {
-				// Exact tokens from the SipiRider design spec sheet
-				'primary-teal': '#149AA0',
-				'deep-teal': '#0D6F75',
-				'light-teal': '#E6F6F7',
+				// Kept in sync with the @theme tokens in src/app.css (authoritative).
+				'primary-teal': '#14A4A0',
+				'deep-teal': '#0D6F71',
+				'light-teal': '#E6FDF7',
 				bg: '#F6FAFB',
 				'text-primary': '#0F172A',
 				'text-muted': '#64748B',
-				border: '#E2E8F0',
-				success: '#16A34A'
+				border: '#E2EAF0',
+				success: '#1EA34A'
 			},
 			fontFamily: {
 				sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif']
