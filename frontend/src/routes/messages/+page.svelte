@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import BottomNav from '$lib/components/BottomNav.svelte';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -67,7 +68,11 @@
 		{:else}
 			<div class="flex flex-col divide-y divide-border rounded-2xl border border-border bg-white">
 				{#each conversations as c}
-					<div class="flex items-center gap-3 p-4">
+					<button
+						type="button"
+						class="flex w-full cursor-pointer items-center gap-3 p-4 text-left transition hover:bg-slate-50"
+						onclick={() => goto(`/messages/${c.id}`)}
+					>
 						<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-light-teal text-caption font-semibold text-deep-teal">
 							{initials(c.partnerName)}
 						</div>
@@ -76,7 +81,7 @@
 							<p class="truncate text-caption text-text-muted">{c.lastMessage ?? 'Start a conversation'}</p>
 						</div>
 						<Icon name="chevron" size={14} class="text-text-muted" />
-					</div>
+					</button>
 				{/each}
 			</div>
 		{/if}

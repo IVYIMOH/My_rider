@@ -70,6 +70,14 @@ export interface Conversation {
 	lastMessage: string | null;
 }
 
+export interface Message {
+	id: number;
+	senderId: number;
+	senderName: string;
+	body: string;
+	createdAt: string;
+}
+
 export async function getPricing(): Promise<{ config: PricingConfig; vehicleClasses: VehicleClass[] }> {
 	return http('/api/pricing');
 }
@@ -141,6 +149,24 @@ export async function getConversations(): Promise<Conversation[]> {
 	return http<{ conversations: Conversation[] }>('/api/messages', { token: requireToken() }).then(
 		(r) => r.conversations
 	);
+}
+
+export async function getConversationMessages(id: number): Promise<Message[]> {
+	return http<{ messages: Message[] }>(`/api/messages/${id}`, { token: requireToken() }).then(
+		(r) => r.messages
+	);
+}
+
+export async function sendMessage(id: number, body: string): Promise<void> {
+	await http(`/api/messages/${id}`, { method: 'POST', token: requireToken(), body: { body } });
+}
+
+export async function startConversation(recipientId: number, body: string): Promise<number> {
+	return http<{ conversationId: number }>('/api/messages', {
+		method: 'POST',
+		token: requireToken(),
+		body: { recipientId, body }
+	}).then((r) => r.conversationId);
 }
 
 export async function getProfile(): Promise<{

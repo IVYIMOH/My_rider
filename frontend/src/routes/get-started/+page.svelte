@@ -4,7 +4,7 @@
 	import MapWrapper from '$lib/components/MapWrapper.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import PhoneLoginForm from '$lib/components/PhoneLoginForm.svelte';
-	import { getPricing, createRide, getRide, cancelRide } from '$lib/api';
+	import { getPricing, createRide, getRide, cancelRide, startConversation } from '$lib/api';
 	import { isAuthenticated } from '$lib/auth';
 	import { ApiError } from '$lib/http';
 	import type { PricingConfig, Ride, VehicleClass } from '$lib/api';
@@ -128,6 +128,18 @@
 		requestError = null;
 		try {
 			currentRide = await cancelRide(currentRideId);
+		} catch (e) {
+			requestError = (e as Error).message;
+		}
+	}
+
+	async function chatWithDriver() {
+		const driver = currentRide?.driver;
+		if (!driver) return;
+		requestError = null;
+		try {
+			const convoId = await startConversation(driver.id, 'Hello! I just requested a ride with you.');
+			goto(`/messages/${convoId}`);
 		} catch (e) {
 			requestError = (e as Error).message;
 		}
@@ -319,6 +331,13 @@
 					<p class="text-caption text-text-muted mt-2">
 						{currentRide.pickup} → {currentRide.destination}
 					</p>
+					<button
+						type="button"
+						class="mt-3 w-full border border-primary-teal bg-light-teal text-deep-teal rounded-xl py-2.5 text-xs font-bold uppercase tracking-wide"
+						onclick={chatWithDriver}
+					>
+						Chat with driver
+					</button>
 				{:else}
 					<span class="mb-2 h-9 w-9 animate-spin rounded-full border-[3px] border-border border-t-primary-teal"></span>
 					<h3 class="text-body-lg font-semibold text-text-primary">Looking for a driver…</h3>
