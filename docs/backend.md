@@ -1,6 +1,6 @@
 # Backend — Sipi Rider API
 
-This document details the backend of Sipi Rider. The repository contains **two backend implementations**; this document covers the **TypeScript/Express backend** (the active one both frontends talk to) in full, then documents the **Go/Fiber prototype** separately at the end.
+This document details the backend of Sipi Rider — the **TypeScript/Express API**, the single backend that both frontends talk to. (A Go/Fiber prototype previously coexisted here and was removed; see §8 for the historical comparison.)
 
 - Source: `backend/`
 - Runtime: `npm run dev` → `tsx watch src/index.ts` (or `npm start`), listens on `:8080` by default
@@ -351,11 +351,11 @@ sequenceDiagram
 
 ---
 
-## 8. The Go/Fiber prototype (secondary backend)
+## 8. The removed Go/Fiber prototype
 
-Ported from a previous prototype (`git f01578a`), the Go backend coexists in the same directory. It is **not** what the frontend/admin apps connect to.
+The repository once contained a **Go/Fiber port of a previous prototype** (`backend/cmd/`, `backend/internal/`, `go.mod`, `go.sum`, added in git `f01578a`). It was **removed** in commit `5fca844` because it shared the default port (`8080`) and `DB_PATH=./sipi.db` with the Express backend but used an incompatible schema. The Express backend is the one both frontends call, so the prototype was deleted. The historical notes below are kept for reference; the code remains recoverable via `git show f01578a`.
 
-### Structure
+### Structure (as it was)
 
 ```
 backend/
@@ -371,7 +371,7 @@ backend/
     └── services/             # auth, booking, driver, rating, sms (console stub)
 ```
 
-### Route table (`cmd/server/main.go`)
+### Route table (as it was, `cmd/server/main.go`)
 
 | Method | Path | Auth |
 |---|---|---|
@@ -408,7 +408,7 @@ stateDiagram-v2
     completed --> [*]
 ```
 
-### Why they conflict
+### Why it conflicted
 
 | Aspect | Express backend | Go backend |
 |---|---|---|
@@ -420,4 +420,4 @@ stateDiagram-v2
 | `users` key | INTEGER id + password_hash | TEXT id + phone |
 | Admin console | fully supported (`/api/admin/*`) | none |
 
-Only **one** backend may run against a given `sipi.db` at a time; starting the other against the same file applies its own `CREATE TABLE IF NOT EXISTS` and expects a different shape, which will fail at runtime.
+Only one backend could run against a given `sipi.db` at a time; starting the other against the same file applied its own `CREATE TABLE IF NOT EXISTS` and expected a different shape, failing at runtime.

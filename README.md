@@ -10,7 +10,7 @@ This repository is a monorepo with three apps plus a documentation folder:
 My_rider/
 ├── frontend/        # SipiRider rider mobile/web app (SvelteKit + Tailwind + Capacitor)
 ├── admin/           # SipiRider Admin Console (SvelteKit + Tailwind)
-├── backend/         # Backend API + database (TypeScript/Express, plus a Go/Fiber prototype)
+├── backend/         # Backend API + database (TypeScript/Express)
 └── docs/            # Architecture & per-system documentation
 ```
 
@@ -18,9 +18,7 @@ My_rider/
 |---|---|---|---|
 | `frontend/` | Rider app — book rides, chat, driver dashboard | SvelteKit 5 (static SPA), Tailwind v4, Capacitor 8, PWA | `backend/` REST API (`:8080`) |
 | `admin/` | Admin console — users, drivers, pricing | SvelteKit 5 (static SPA), Tailwind v4 | `backend/` REST API (`:8080`) |
-| `backend/` | REST API + SQLite database | TypeScript/Express + better-sqlite3 (active), Go/Fiber + go-sqlite3 (ported prototype) | MTN & Safaricom APIs, Gmail SMTP |
-
-> **Heads-up:** `backend/` currently contains two API implementations that share the same default port (`8080`) and the same SQLite file (`sipi.db`) but have **incompatible schemas** — the TypeScript/Express backend (the one both frontends are wired to) and a Go/Fiber prototype ported from an earlier prototype. Only one should run at a time. See [docs/backend.md](docs/backend.md).
+| `backend/` | REST API + SQLite database | TypeScript/Express + better-sqlite3 | MTN & Safaricom APIs, Gmail SMTP |
 
 ## Quick start
 
@@ -68,4 +66,3 @@ Each app uses plain Vite/SvelteKit/tsx scripts (no workspaces tooling):
 - **frontend:** `npm run dev`, `npm run build`, `npm run preview`, `npm run check`
 - **admin:** `npm run dev`, `npm run build`, `npm run preview`, `npm run check`
 - **backend:** `npm run dev` (watch), `npm start`, `npm run build`, `npm run typecheck`
-- **backend (Go prototype):** `go run ./cmd/server`

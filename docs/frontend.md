@@ -246,7 +246,7 @@ Shows the driver identity card (name, association, verified badge), a stats grid
 
 ### Known gaps from the review
 
-1. **API contract drift:** the Go/Fiber prototype in `backend/` exposes `bookings` + OTP endpoints that this app does **not** call; this app targets the Express backend (`rides`, `phone-login`, `pricing`, `messages`). If the Express backend is not running on `:8080`, every screen shows `NETWORK_ERROR`.
+1. **API contract:** this app targets the Express backend (`rides`, `phone-login`, `pricing`, `messages`). If the backend is not running on `:8080`, every screen shows `NETWORK_ERROR`.
 2. **PWA icons missing** from `static/`.
 3. **Capacitor app ids/names** still placeholder (`com.example.myapp` / `MyApp`).
 4. Onboarding is 1 of 4 planned steps; sample/hardcoded values used.

@@ -43,7 +43,7 @@ Notes from the code review:
 - Both web clients are **pure client-side SPAs** (`adapter-static` with `fallback: index.html`). There are no server-side load functions, hooks, or `+server.ts` routes anywhere — all data fetching happens in the browser.
 - Both clients share the **same HTTP client pattern** (`$lib/http.ts`) and default `API_BASE` of `http://localhost:8080`.
 - The **Express backend is the API both frontends are wired to**. Its endpoint contract matches the API client functions in `frontend/src/lib/api.ts` and `admin/src/lib/api.ts` exactly.
-- A **second, older backend** also lives in `backend/` — a Go/Fiber port of a previous prototype. It is *not* what the frontends talk to and has an incompatible schema. See [backend.md](backend.md) §8.
+- The Go/Fiber prototype that once coexisted in `backend/` was **removed** (commit `5fca844`) — see [backend.md](backend.md) §8 for the historical comparison.
 
 ---
 
@@ -334,27 +334,17 @@ Admin flows, route-by-route, are documented in [admin.md](admin.md). Public pric
 
 ---
 
-## 9. The Go/Fiber prototype (secondary backend)
+## 9. Backend consolidation note
 
-`backend/cmd/` and `backend/internal/` contain a **Go port of a previous prototype** that predates the Express backend. Review findings:
+Until commit `5fca844` (chore: remove Go/Fiber prototype), `backend/` also contained a **Go/Fiber port of a previous prototype** (`backend/cmd/`, `backend/internal/`, `go.mod`, `go.sum`). Review findings recorded before removal:
 
 - Framework: **Fiber v2**, JWT (`golang-jwt`), SQLite (`mattn/go-sqlite3`, CGO), UUIDs.
 - Identity: **phone + OTP** with roles `citizen` / `driver` (no email/password, no admin).
 - Domain: **bookings** (`pending → confirmed → declined → completed`), SOS alerts, ratings, and shareable trip links (`GET /api/trips/share/:token`).
 - SMS: console-only stub (`services/sms.go` logs instead of sending).
-- Routes are wired in `cmd/server/main.go` and mirror the Express feature set (drivers, bookings, auth) under a different contract.
+- Routes were wired in `cmd/server/main.go` and mirrored the Express feature set (drivers, bookings, auth) under a different contract.
 
-```mermaid
-flowchart TB
-    subgraph "Go backend (cmd/server + internal/)"
-        G1["config.Load()"] --> G2["database.Connect()<br/>(embedded 001_init.up.sql)"]
-        G2 --> G3["services: Auth · Booking · Driver · Rating · SMS"]
-        G3 --> G4["handlers: auth · booking · driver · driver_signup · rating · sos"]
-        G4 --> G5["Fiber app :8080"]
-    end
-```
-
-> **Important operational warning:** both backends default to port `8080` and `DB_PATH=./sipi.db`, but the Go schema (`users` keyed by `phone`, `bookings`, `otp_codes`) is **incompatible** with the Express schema (`users` keyed by `id` with `password_hash`, `rides`, `pricing`, `messages`). The on-disk `sipi.db` currently holds the Express/legacy shape. **Run only one backend against a database at a time** — see [backend.md](backend.md) §8 for the full comparison.
+> **Why it was removed:** it shared the default port (`8080`) and `DB_PATH=./sipi.db` with the Express backend but had an **incompatible schema** (`users` keyed by `phone`, `bookings`, `otp_codes` vs. the Express `users` keyed by `id` with `password_hash`, `rides`, `pricing`, `messages`), so only one could run against the database. The Express backend is the one both frontends are wired to, so the prototype was deleted. It remains recoverable from git history (`f01578a`).
 
 ---
 
@@ -366,7 +356,6 @@ flowchart TB
 - **Caching:** token caches for MTN/Daraja OAuth bearer tokens (in-memory, refreshed before expiry). No Redis, no job queue, no websockets.
 - **PWA / offline:** the rider app registers a Workbox service worker (generateSW) and caches Google Maps scripts/tiles with a NetworkFirst strategy.
 - **Security notes from review:**
-  - The Go JWT parser does not enforce the `alg` on verification.
   - `.env` (gitignored) contains what look like live MTN/Daraja credentials — rotate if genuine.
   - `PHONE_MOCK=true` must be disabled in production.
 
@@ -402,8 +391,7 @@ My_rider/
 │           ├── (auth)/verify-email
 │           └── (app)/           # overview, pricing, drivers, users
 └── backend/
-    ├── go.mod / cmd/ / internal/   # Go/Fiber prototype (f01578a, "previous prototype")
-    ├── src/                        # Express/TypeScript backend (active)
+    ├── src/                        # Express/TypeScript backend (single API)
     │   ├── app.ts                  # Express wiring + /api/health
     │   ├── config.ts               # env config
     │   ├── db.ts                   # schema + migration + seed
