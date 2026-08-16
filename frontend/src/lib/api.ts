@@ -18,6 +18,16 @@ export interface VehicleClass {
 	seats: string;
 }
 
+export interface RideDriver {
+	id: number;
+	name: string;
+	phone: string | null;
+	association: string | null;
+	vehicleClassId: string | null;
+	rating: number;
+	verified: boolean;
+}
+
 export interface Ride {
 	id: number;
 	userId: number;
@@ -31,6 +41,7 @@ export interface Ride {
 	status: 'searching' | 'active' | 'completed' | 'cancelled';
 	createdAt: string;
 	updatedAt: string;
+	driver: RideDriver | null;
 }
 
 export interface DriverMe {
@@ -87,6 +98,26 @@ export async function createRide(input: {
 
 export async function getRides(): Promise<Ride[]> {
 	return http<{ rides: Ride[] }>('/api/rides', { token: requireToken() }).then((r) => r.rides);
+}
+
+export async function getAvailableRides(): Promise<Ride[]> {
+	return http<{ rides: Ride[] }>('/api/rides/available', { token: requireToken() }).then((r) => r.rides);
+}
+
+export async function getRide(id: number): Promise<Ride> {
+	return http<{ ride: Ride }>(`/api/rides/${id}`, { token: requireToken() }).then((r) => r.ride);
+}
+
+export async function acceptRide(id: number): Promise<Ride> {
+	return http<{ ride: Ride }>(`/api/rides/${id}/accept`, { method: 'POST', token: requireToken() }).then((r) => r.ride);
+}
+
+export async function completeRide(id: number): Promise<Ride> {
+	return http<{ ride: Ride }>(`/api/rides/${id}/complete`, { method: 'POST', token: requireToken() }).then((r) => r.ride);
+}
+
+export async function cancelRide(id: number): Promise<Ride> {
+	return http<{ ride: Ride }>(`/api/rides/${id}/cancel`, { method: 'POST', token: requireToken() }).then((r) => r.ride);
 }
 
 export async function getDriverMe(): Promise<DriverMe> {
