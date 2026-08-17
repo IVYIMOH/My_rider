@@ -4,16 +4,23 @@
 	import ErrorState from '$lib/components/ErrorState.svelte';
 	import PhoneGate from '$lib/components/PhoneGate.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { getDriverMe, setDriverOnline } from '$lib/api';
+	import { getDriverMe, setDriverOnline, getAvailableRides, getRides, acceptRide, completeRide } from '$lib/api';
 	import { isAuthenticated } from '$lib/auth';
 	import { ApiError } from '$lib/http';
-	import type { DriverMe } from '$lib/api';
+	import type { DriverMe, Ride } from '$lib/api';
 
 	let online = $state(false);
 	let data = $state<DriverMe | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let errorCode = $state('');
+	let activeTab = $state('home');
+
+	let availableRides = $state<Ride[]>([]);
+	let activeRide = $state<Ride | null>(null);
+	let ridesLoading = $state(true);
+	let ridesError = $state<string | null>(null);
+	let rideAction = $state<number | null>(null);
 
 	const kampala = { lat: 0.3476, lng: 32.5825 };
 	const totalStars = 5;
@@ -53,6 +60,55 @@
 			online = !next;
 			error = (e as Error).message;
 			errorCode = e instanceof ApiError ? e.code : '';
+		}
+	}
+
+	// Dispatch board: available ride requests + the driver's active ride,
+	// polled so new requests and status changes show up automatically.
+	async function loadRides() {
+		if (!isAuthenticated()) return;
+		ridesLoading = true;
+		ridesError = null;
+		try {
+			const [available, mine] = await Promise.all([getAvailableRides(), getRides()]);
+			availableRides = available;
+			activeRide = mine.find((r) => r.status === 'active') ?? null;
+		} catch (e) {
+			ridesError = (e as Error).message;
+		} finally {
+			ridesLoading = false;
+		}
+	}
+
+	$effect(() => {
+		loadRides();
+		const timer = setInterval(loadRides, 5000);
+		return () => clearInterval(timer);
+	});
+
+	async function handleAccept(id: number) {
+		rideAction = id;
+		ridesError = null;
+		try {
+			await acceptRide(id);
+			await loadRides();
+		} catch (e) {
+			ridesError = (e as Error).message;
+		} finally {
+			rideAction = null;
+		}
+	}
+
+	async function handleComplete(id: number) {
+		rideAction = id;
+		ridesError = null;
+		try {
+			await completeRide(id);
+			await loadRides();
+		} catch (e) {
+			ridesError = (e as Error).message;
+		} finally {
+			rideAction = null;
 		}
 	}
 
@@ -125,6 +181,62 @@
 				{/if}
 			</div>
 
+			{#if activeRide}
+				<div class="card mt-3 border-primary-teal/40 bg-light-teal">
+					<div class="flex items-center justify-between">
+						<p class="text-caption font-semibold uppercase tracking-wide text-text-muted">Active ride</p>
+						<span class="chip chip-active">In progress</span>
+					</div>
+					<p class="mt-2 text-body-lg font-semibold text-text-primary">{activeRide.pickup} → {activeRide.destination}</p>
+					<p class="mt-1 text-caption text-text-muted">
+						${activeRide.estimatedFare.toFixed(2)} · {activeRide.vehicleClassId}
+					</p>
+					<button
+						type="button"
+						class="btn-primary mt-3 py-2.5 text-xs uppercase font-bold"
+						disabled={rideAction === activeRide.id}
+						onclick={() => handleComplete(activeRide!.id)}
+					>
+						{rideAction === activeRide.id ? 'Completing…' : 'Complete ride'}
+					</button>
+				</div>
+			{/if}
+
+			<div class="card mt-3">
+				<div class="flex items-center justify-between">
+					<p class="text-caption font-semibold uppercase tracking-wide text-text-muted">Available rides</p>
+					{#if ridesLoading}
+						<span class="h-3 w-3 animate-spin rounded-full border-2 border-border border-t-primary-teal"></span>
+					{/if}
+				</div>
+				{#if ridesError}
+					<p class="mt-2 rounded-xl bg-red-50 px-3 py-2 text-caption font-medium text-red-700">{ridesError}</p>
+				{:else if !online}
+					<p class="mt-2 text-caption text-text-muted">Go online to receive ride requests.</p>
+				{:else if availableRides.length === 0}
+					<p class="mt-2 text-caption text-text-muted">No ride requests right now.</p>
+				{:else}
+					<div class="mt-2 divide-y divide-border">
+						{#each availableRides as r}
+							<div class="flex items-center gap-3 py-3">
+								<div class="min-w-0 flex-1">
+									<p class="truncate text-body-rg font-semibold text-text-primary">{r.pickup} → {r.destination}</p>
+									<p class="text-caption text-text-muted">${r.estimatedFare.toFixed(2)} · {r.vehicleClassId}</p>
+								</div>
+								<button
+									type="button"
+									class="shrink-0 rounded-xl bg-deep-teal px-4 py-2 text-xs font-bold text-white"
+									disabled={rideAction === r.id}
+									onclick={() => handleAccept(r.id)}
+								>
+									{rideAction === r.id ? '…' : 'Accept'}
+								</button>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+
 			<div class="mt-3 grid grid-cols-3 gap-3">
 				<div class="card py-3 text-center">
 					<p class="text-caption text-text-muted">Today</p>
@@ -159,6 +271,6 @@
 		{/if}
 	</div>
 
-	<BottomNav />
+	<BottomNav bind:activeTab />
 	</div>
 </PhoneGate>

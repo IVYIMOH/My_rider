@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../db';
 import { requireAuth } from '../middleware/auth';
+import { normalizePhone } from '../lib/phone';
 
 export const profileRouter = Router();
 
@@ -49,6 +50,14 @@ profileRouter.get('/', (req, res) => {
 profileRouter.patch('/', (req, res) => {
 	const body = patchSchema.parse(req.body);
 	if (body.name !== undefined) db.prepare('UPDATE users SET name = ? WHERE id = ?').run(body.name.trim(), req.user!.id);
-	if (body.phone !== undefined) db.prepare('UPDATE users SET phone = ? WHERE id = ?').run(body.phone.trim(), req.user!.id);
+	if (body.phone !== undefined) {
+		let phone = body.phone.trim();
+		try {
+			phone = normalizePhone(phone).e164;
+		} catch {
+			// keep the raw value if it cannot be normalized
+		}
+		db.prepare('UPDATE users SET phone = ? WHERE id = ?').run(phone, req.user!.id);
+	}
 	res.json({ message: 'Profile updated.' });
 });
