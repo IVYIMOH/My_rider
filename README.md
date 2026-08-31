@@ -1,42 +1,68 @@
-# sv
+# Sipi Rider
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+A ride-hailing platform that connects travelers with verified taxi-association drivers in East Africa (Uganda & Kenya). The product centers on trust: drivers belong to known SACCOs/taxi associations, are verified by admins, and riders verify their phone numbers with their mobile operator (MTN Uganda / Safaricom Kenya) before booking.
 
-## Creating a project
+## Monorepo layout
 
-If you're seeing this, you've probably already done this step. Congrats!
+This repository is a monorepo with three apps plus a documentation folder:
 
-```sh
-# create a new project
-npx sv create my-app
+```
+My_rider/
+├── frontend/        # SipiRider rider mobile/web app (SvelteKit + Tailwind + Capacitor)
+├── admin/           # SipiRider Admin Console (SvelteKit + Tailwind)
+├── backend/         # Backend API + database (TypeScript/Express)
+└── docs/            # Architecture & per-system documentation
 ```
 
-To recreate this project with the same configuration:
+| Directory | What it is | Stack | Talks to |
+|---|---|---|---|
+| `frontend/` | Rider app — book rides, chat, driver dashboard | SvelteKit 5 (static SPA), Tailwind v4, Capacitor 8, PWA | `backend/` REST API (`:8080`) |
+| `admin/` | Admin console — users, drivers, pricing | SvelteKit 5 (static SPA), Tailwind v4 | `backend/` REST API (`:8080`) |
+| `backend/` | REST API + SQLite database | TypeScript/Express + better-sqlite3 | MTN & Safaricom APIs, Gmail SMTP |
+
+## Quick start
+
+### 1. Backend
 
 ```sh
-# recreate this project
-npx sv@0.17.0 create --template minimal --types ts --install npm my-svelte-app
+cd backend
+npm install
+npm run dev        # tsx watch src/index.ts  →  http://localhost:8080
 ```
 
-## Developing
+On first boot it creates/opens `sipi.db` and seeds demo users, vehicle classes, pricing, drivers, rides and messages. Copy `.env.example` to `.env` and fill in SMTP / MTN / Daraja credentials to enable real email + phone verification (defaults keep `PHONE_MOCK=true` so no external calls are made in dev).
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+### 2. Frontend (rider app)
 
 ```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+cd frontend
+npm install
+npm run dev        # vite dev  →  http://localhost:5173
 ```
 
-## Building
+Set `VITE_API_BASE_URL` if the backend is not on `http://localhost:8080`. `VITE_GOOGLE_MAPS_API_KEY` is used for the map screens.
 
-To create a production version of your app:
+### 3. Admin console
 
 ```sh
-npm run build
+cd admin
+npm install
+npm run dev        # vite dev  →  http://localhost:5174
 ```
 
-You can preview the production build with `npm run preview`.
+The backend builds email-verification links against `PUBLIC_BASE_URL` (default `http://localhost:5174`, i.e. the admin dev server).
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system overview, component & flow diagrams
+- [docs/frontend.md](docs/frontend.md) — rider app
+- [docs/admin.md](docs/admin.md) — admin console
+- [docs/backend.md](docs/backend.md) — backend API, data model, integrations
+
+## Scripts
+
+Each app uses plain Vite/SvelteKit/tsx scripts (no workspaces tooling):
+
+- **frontend:** `npm run dev`, `npm run build`, `npm run preview`, `npm run check`
+- **admin:** `npm run dev`, `npm run build`, `npm run preview`, `npm run check`
+- **backend:** `npm run dev` (watch), `npm start`, `npm run build`, `npm run typecheck`

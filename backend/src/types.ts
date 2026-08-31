@@ -40,6 +40,16 @@ export interface VehicleClass {
 	seats: string;
 }
 
+export interface RideDriver {
+	id: number;
+	name: string;
+	phone: string | null;
+	association: string | null;
+	vehicleClassId: string | null;
+	rating: number;
+	verified: boolean;
+}
+
 export interface Ride {
 	id: number;
 	userId: number;
@@ -53,4 +63,5 @@ export interface Ride {
 	status: RideStatus;
 	createdAt: string;
 	updatedAt: string;
+	driver: RideDriver | null;
 }

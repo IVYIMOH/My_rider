@@ -4,10 +4,10 @@
 	import MapWrapper from '$lib/components/MapWrapper.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import PhoneLoginForm from '$lib/components/PhoneLoginForm.svelte';
-	import { getPricing, createRide } from '$lib/api';
+	import { getPricing, createRide, getRide, cancelRide, startConversation } from '$lib/api';
 	import { isAuthenticated } from '$lib/auth';
 	import { ApiError } from '$lib/http';
-	import type { PricingConfig, VehicleClass } from '$lib/api';
+	import type { PricingConfig, Ride, VehicleClass } from '$lib/api';
 
 	// Svelte 5 states to manage user flow step-by-step
 	let flowStep = $state('empty'); // 'empty' | 'select_vehicle' | 'requested'
@@ -16,6 +16,10 @@
 	let requesting = $state(false);
 	let requestError = $state<string | null>(null);
 	let phoneStep = $state(false);
+
+	// The active ride request and its live status (polled while searching/active).
+	let currentRideId = $state<number | null>(null);
+	let currentRide = $state<Ride | null>(null);
 
 	let vehicleClasses = $state<VehicleClass[]>([]);
 	let config = $state<PricingConfig | null>(null);
@@ -86,19 +90,66 @@
 		requesting = true;
 		requestError = null;
 		try {
-			await createRide({
+			const ride = await createRide({
 				vehicleClassId: selectedVehicle,
 				pickup: locations[0].name,
 				destination: locations[1].name,
 				distanceKm: routeKm,
 				durationMin: routeMin
 			});
+			currentRideId = ride.id;
+			currentRide = ride;
 			flowStep = 'requested';
 		} catch (e) {
 			requestError = (e as Error).message;
 		} finally {
 			requesting = false;
 		}
+	}
+
+	// While a ride request is on the board, poll its status so the rider sees
+	// the driver get assigned (or the ride cancelled/completed) in near-real-time.
+	$effect(() => {
+		if (flowStep !== 'requested' || !currentRideId) return;
+		const tick = async () => {
+			try {
+				currentRide = await getRide(currentRideId!);
+			} catch {
+				// transient polling error — keep the last known state
+			}
+		};
+		tick();
+		const timer = setInterval(tick, 5000);
+		return () => clearInterval(timer);
+	});
+
+	async function cancelCurrentRide() {
+		if (!currentRideId) return;
+		requestError = null;
+		try {
+			currentRide = await cancelRide(currentRideId);
+		} catch (e) {
+			requestError = (e as Error).message;
+		}
+	}
+
+	async function chatWithDriver() {
+		const driver = currentRide?.driver;
+		if (!driver) return;
+		requestError = null;
+		try {
+			const convoId = await startConversation(driver.id, 'Hello! I just requested a ride with you.');
+			goto(`/messages/${convoId}`);
+		} catch (e) {
+			requestError = (e as Error).message;
+		}
+	}
+
+	function resetRequest() {
+		flowStep = 'empty';
+		currentRideId = null;
+		currentRide = null;
+		requestError = null;
 	}
 </script>
 
@@ -247,22 +298,75 @@
 			</div>
 
 		{:else if flowStep === 'requested'}
-			<!-- CASE C: Request Confirmed State -->
+			<!-- CASE C: Live ride request status -->
 			<div class="absolute bottom-4 inset-x-4 z-20 bg-white/95 backdrop-blur p-6 rounded-2xl shadow-xl border border-border text-center flex flex-col items-center">
-				<div class="w-12 h-12 bg-light-teal text-deep-teal rounded-full flex items-center justify-center text-xl mb-2">
-					<Icon name="check" size={24} class="text-primary-teal" />
-				</div>
-				<h3 class="text-body-lg font-semibold text-text-primary">Ride requested!</h3>
-				<p class="text-caption text-text-muted mt-1 max-w-[220px]">
-					Connecting with trusted local drivers. Your fare is {formatMoney(fareFor.get(selectedVehicle) ?? 0)}.
-				</p>
-				<button
-					type="button"
-					class="btn-primary mt-4 py-2.5 text-xs tracking-wide uppercase font-bold"
-					onclick={() => { flowStep = 'empty'; requestError = null; }}
-				>
-					Done
-				</button>
+				{#if currentRide?.status === 'completed'}
+					<div class="w-12 h-12 bg-light-teal text-deep-teal rounded-full flex items-center justify-center text-xl mb-2">
+						<Icon name="check" size={24} class="text-primary-teal" />
+					</div>
+					<h3 class="text-body-lg font-semibold text-text-primary">Trip complete</h3>
+					<p class="text-caption text-text-muted mt-1 max-w-[220px]">
+						Thanks for riding with a trusted local driver.
+					</p>
+				{:else if currentRide?.status === 'cancelled'}
+					<div class="w-12 h-12 bg-slate-100 flex items-center justify-center text-xl mb-2 rounded-full">
+						<Icon name="back" size={24} class="text-text-muted" />
+					</div>
+					<h3 class="text-body-lg font-semibold text-text-primary">Ride cancelled</h3>
+					<p class="text-caption text-text-muted mt-1 max-w-[220px]">
+						No problem. You can request another ride anytime.
+					</p>
+				{:else if currentRide?.status === 'active' && currentRide.driver}
+					<div class="w-12 h-12 bg-light-teal text-deep-teal rounded-full flex items-center justify-center text-xl mb-2">
+						<Icon name="car" size={24} class="text-primary-teal" />
+					</div>
+					<h3 class="text-body-lg font-semibold text-text-primary">Driver assigned</h3>
+					<div class="mt-2 w-full card text-left">
+						<p class="text-body-rg font-semibold text-text-primary">{currentRide.driver.name}</p>
+						<p class="text-caption text-text-muted">
+							{currentRide.driver.association ?? 'Verified driver'}
+							{#if currentRide.driver.rating > 0} · ★ {currentRide.driver.rating.toFixed(1)}{/if}
+						</p>
+					</div>
+					<p class="text-caption text-text-muted mt-2">
+						{currentRide.pickup} → {currentRide.destination}
+					</p>
+					<button
+						type="button"
+						class="mt-3 w-full border border-primary-teal bg-light-teal text-deep-teal rounded-xl py-2.5 text-xs font-bold uppercase tracking-wide"
+						onclick={chatWithDriver}
+					>
+						Chat with driver
+					</button>
+				{:else}
+					<span class="mb-2 h-9 w-9 animate-spin rounded-full border-[3px] border-border border-t-primary-teal"></span>
+					<h3 class="text-body-lg font-semibold text-text-primary">Looking for a driver…</h3>
+					<p class="text-caption text-text-muted mt-1 max-w-[220px]">
+						Connecting with trusted local drivers. Your fare is {formatMoney(fareFor.get(selectedVehicle) ?? 0)}.
+					</p>
+				{/if}
+
+				{#if requestError}
+					<p class="mt-2 rounded-xl bg-red-50 px-3 py-1.5 text-[11px] font-medium text-red-700">{requestError}</p>
+				{/if}
+
+				{#if currentRide && (currentRide.status === 'searching' || currentRide.status === 'active')}
+					<button
+						type="button"
+						class="mt-4 w-full border border-border bg-white rounded-xl py-2.5 text-xs font-bold uppercase tracking-wide text-red-600"
+						onclick={cancelCurrentRide}
+					>
+						Cancel ride
+					</button>
+				{:else if currentRide}
+					<button
+						type="button"
+						class="btn-primary mt-4 py-2.5 text-xs tracking-wide uppercase font-bold"
+						onclick={resetRequest}
+					>
+						Done
+					</button>
+				{/if}
 			</div>
 		{/if}
 	</div>
