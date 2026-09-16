@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../db';
 import { err } from '../errors';
+import { hashPassword } from '../lib/password';
+import { normalizePhone } from '../lib/phone';
 import { requireAuth, requireRole } from '../middleware/auth';
 import type { PricingConfig, UserStatus } from '../types';
 
@@ -31,6 +33,19 @@ const pricingSchema = z.object({
 
 const driverPatchSchema = z.object({ verified: z.boolean() });
 const userPatchSchema = z.object({ status: z.enum(['active', 'pending', 'suspended']) });
+
+// Privileged account creation. This is the ONLY way to mint an admin or driver
+// account over HTTP — /api/auth/register always produces a tourist. The router
+// is mounted behind requireAuth + requireRole('admin'), so a valid admin JWT is
+// required to reach it. For the very first admin on a fresh database, use
+// `npm run create-admin` (scripts/create-admin.ts) instead.
+const createUserSchema = z.object({
+	name: z.string().min(2).max(80),
+	email: z.string().email(),
+	password: z.string().min(12).max(128),
+	role: z.enum(['tourist', 'driver', 'admin']),
+	phone: z.string().min(7).max(30).optional()
+});
 
 function getConfigRow(): PricingConfig {
 	const row = db.prepare('SELECT * FROM pricing WHERE id = 1').get() as Record<string, number | string>;
@@ -137,6 +152,40 @@ adminRouter.get('/users', (_req, res) => {
 			phoneVerified: r.phone_verified === 1,
 			phone: (r.phone as string | null) ?? undefined
 		}))
+	});
+});
+
+adminRouter.post('/users', (req, res) => {
+	const body = createUserSchema.parse(req.body);
+	const email = body.email.toLowerCase();
+
+	if (db.prepare('SELECT id FROM users WHERE email = ?').get(email)) {
+		throw err.conflict('An account with this email already exists.', 'EMAIL_TAKEN');
+	}
+
+	let phone: string | null = body.phone ?? null;
+	if (phone) {
+		phone = normalizePhone(phone).e164;
+		if (db.prepare('SELECT id FROM users WHERE phone = ?').get(phone)) {
+			throw err.conflict('An account with this phone number already exists.', 'PHONE_TAKEN');
+		}
+	}
+
+	// Created by an admin, so the account is trusted: active and email-verified
+	// up front. Drivers still need a drivers row (onboarding) and verified = 1
+	// before they can accept rides.
+	const info = db
+		.prepare(
+			`INSERT INTO users (name, email, phone, password_hash, role, status, email_verified, phone_verified)
+			 VALUES (?, ?, ?, ?, ?, 'active', 1, 0)`
+		)
+		.run(body.name.trim(), email, phone, hashPassword(body.password), body.role);
+
+	const id = Number(info.lastInsertRowid);
+	console.log(`[admin] user #${req.user!.id} created ${body.role} account #${id} (${email})`);
+
+	res.status(201).json({
+		user: { id, name: body.name.trim(), email, phone, role: body.role, status: 'active' }
 	});
 });
 

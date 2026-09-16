@@ -65,11 +65,30 @@ export function login(email: string, password: string): Promise<FrontendUser> {
 	});
 }
 
-/** Phone-based sign-in: verifies the number with the operator, then finds or creates the rider account. */
-export function phoneLogin(phone: string, role: 'tourist' | 'driver'): Promise<FrontendUser> {
-	return http<{ token: string; user: FrontendUser }>('/api/auth/phone-login', {
+export interface OtpChallenge {
+	/** Normalized E.164 number the code was sent to — pass this back to verify. */
+	phone: string;
+	expiresInSeconds: number;
+	/** Only present when the backend runs with PHONE_MOCK=true. */
+	devCode?: string;
+}
+
+/**
+ * Step 1 of phone sign-in: asks the backend to text a 6-digit code.
+ * No session is created here — see verifyPhoneLogin().
+ */
+export function startPhoneLogin(phone: string, role: 'tourist' | 'driver'): Promise<OtpChallenge> {
+	return http<OtpChallenge>('/api/auth/phone-login', {
 		method: 'POST',
 		body: { phone, role }
+	});
+}
+
+/** Step 2 of phone sign-in: exchanges the texted code for a session. */
+export function verifyPhoneLogin(phone: string, code: string): Promise<FrontendUser> {
+	return http<{ token: string; user: FrontendUser }>('/api/auth/phone-login/verify', {
+		method: 'POST',
+		body: { phone, code }
 	}).then(({ token, user }) => {
 		const next: Session = { token, user };
 		session.set(next);

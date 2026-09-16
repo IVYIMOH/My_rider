@@ -2,13 +2,12 @@
 	import { goto } from '$app/navigation';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import PhoneLoginForm from '$lib/components/PhoneLoginForm.svelte';
 	import { getVehicleClasses, submitDriverOnboarding } from '$lib/api';
-	import { phoneLogin } from '$lib/auth';
-	import { ApiError } from '$lib/http';
+	import { session } from '$lib/auth';
 	import type { VehicleClass } from '$lib/api';
 
 	let fullName = $state('');
-	let phone = $state('');
 	let association = $state('');
 	let vehicleClassId = $state('');
 	let submitting = $state(false);
@@ -19,6 +18,12 @@
 	let classesError = $state<string | null>(null);
 
 	let submitted = $state(false);
+
+	// The number is confirmed by OTP during sign-in, so onboarding shows it
+	// read-only and reuses the normalized E.164 value the backend stored rather
+	// than re-asking (and risking a differently-formatted duplicate).
+	const verifiedPhone = $derived($session?.user.phone ?? '');
+	const authed = $derived(!!$session?.token);
 
 	async function loadClasses() {
 		loadingClasses = true;
@@ -42,14 +47,15 @@
 		error = null;
 		submitting = true;
 		try {
-			await phoneLogin(phone, 'driver');
-			await submitDriverOnboarding({ fullName, phone, association, vehicleClassId });
+			await submitDriverOnboarding({
+				fullName,
+				phone: verifiedPhone,
+				association,
+				vehicleClassId
+			});
 			submitted = true;
 		} catch (err) {
 			error = (err as Error).message;
-			if (err instanceof ApiError && err.code === 'NO_SESSION') {
-				// phone-login failed before a session existed
-			}
 		} finally {
 			submitting = false;
 		}
@@ -59,7 +65,17 @@
 <div class="app-frame">
 	<TopBar title="Driver onboarding" onBack={() => history.back()} />
 
-	{#if submitted}
+	{#if !authed}
+		<div class="flex flex-1 items-center justify-center p-6">
+			<div class="w-full max-w-sm">
+				<PhoneLoginForm
+					role="driver"
+					title="Verify your phone to apply"
+					buttonLabel="Verify & continue"
+				/>
+			</div>
+		</div>
+	{:else if submitted}
 		<div class="flex flex-1 flex-col items-center justify-center px-8 text-center">
 			<div class="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-light-teal text-deep-teal">
 				<Icon name="check" size={26} class="text-primary-teal" />
@@ -88,7 +104,11 @@
 				</div>
 				<div>
 					<label class="field-label" for="phone">Phone</label>
-					<input id="phone" class="field-input" type="tel" inputmode="tel" bind:value={phone} placeholder="+256 7xx xxx xxx or +254 7xx xxx xxx" required />
+					<div class="flex items-center gap-2 rounded-xl border border-border bg-slate-50 px-3.5 py-3">
+						<Icon name="check" size={14} class="text-primary-teal" />
+						<span class="text-body-rg font-medium text-text-primary">{verifiedPhone}</span>
+						<span class="ml-auto text-caption text-text-muted">Verified</span>
+					</div>
 				</div>
 				<div>
 					<label class="field-label" for="association">Taxi association / SACCO</label>

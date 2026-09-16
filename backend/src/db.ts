@@ -33,6 +33,22 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
 	created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- One-time phone login codes. Keyed by phone rather than user_id because the
+-- account may not exist yet (phone login is find-or-create). Codes are stored
+-- as a SHA-256 hash bound to the phone number, are single-use, and carry the
+-- requested role so a client cannot escalate between the start and verify
+-- steps. The attempts counter caps brute-forcing of the 6-digit space.
+CREATE TABLE IF NOT EXISTS phone_otps (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	phone TEXT NOT NULL,
+	code_hash TEXT NOT NULL,
+	role TEXT NOT NULL CHECK (role IN ('tourist','driver')),
+	attempts INTEGER NOT NULL DEFAULT 0,
+	expires_at TEXT NOT NULL,
+	used_at TEXT,
+	created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS vehicle_classes (
 	id TEXT PRIMARY KEY,
 	name TEXT NOT NULL,
@@ -95,6 +111,7 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_verification_tokens_hash ON verification_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_phone_otps_phone ON phone_otps(phone);
 CREATE INDEX IF NOT EXISTS idx_rides_user ON rides(user_id);
 CREATE INDEX IF NOT EXISTS idx_rides_driver ON rides(driver_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);

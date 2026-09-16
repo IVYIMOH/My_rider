@@ -40,3 +40,22 @@ export async function updateUserStatus(id: number, status: User['status']): Prom
 		body: { status: status.toLowerCase() }
 	});
 }
+
+/**
+ * Creates a privileged account. This is the only HTTP path that can mint an
+ * admin or driver — /api/auth/register always produces a tourist — and the
+ * backend requires a valid admin JWT to reach it.
+ */
+export async function createUser(input: {
+	name: string;
+	email: string;
+	password: string;
+	role: 'tourist' | 'driver' | 'admin';
+	phone?: string;
+}): Promise<{ id: number }> {
+	return http<{ user: { id: number } }>('/api/admin/users', {
+		method: 'POST',
+		token: get(session)?.token,
+		body: input
+	}).then((r) => r.user);
+}

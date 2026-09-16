@@ -45,17 +45,16 @@ export function login(email: string, password: string): Promise<AuthUser> {
 	});
 }
 
-export function register(
-	name: string,
-	email: string,
-	password: string
-): Promise<{ message: string; emailDelivered: boolean }> {
-	return http<{ message: string; emailDelivered: boolean }>('/api/auth/register', {
-		method: 'POST',
-		body: { name, email, password, role: 'admin' }
-	});
-}
-
+/**
+ * Admin accounts are NOT self-service. There is deliberately no register()
+ * here: POST /api/auth/register only ever creates tourists, and the backend
+ * ignores any `role` sent with it.
+ *
+ * To create an admin or driver account:
+ *   - first admin on a fresh database — `npm run create-admin` in backend/
+ *   - any account after that — POST /api/admin/users with an admin JWT
+ *     (see createUser() in ./api.ts)
+ */
 export function verifyEmail(token: string): Promise<{ message: string }> {
 	return http<{ message: string }>(`/api/auth/verify-email?token=${encodeURIComponent(token)}`);
 }

@@ -6,7 +6,9 @@ import { err } from '../errors';
 import { hashPassword, verifyPassword } from '../lib/password';
 import { signToken } from '../lib/jwt';
 import { issueVerificationToken, verifyEmailToken } from '../lib/tokens';
+import { issueOtp, verifyOtp } from '../lib/otp';
 import { sendEmail } from '../lib/mailer';
+import { sendSms } from '../lib/sms';
 import { rateLimit } from '../lib/rateLimit';
 import { requireAuth } from '../middleware/auth';
 import { config } from '../config';
@@ -17,12 +19,15 @@ import type { PublicUser } from '../types';
 
 export const authRouter = Router();
 
+// `role` is intentionally absent: self-registration always produces a tourist.
+// Zod strips unknown keys by default, so a client sending {"role":"admin"} is
+// silently ignored rather than honoured. Privileged accounts are created via
+// POST /api/admin/users (admin JWT required) or scripts/create-admin.ts.
 const registerSchema = z.object({
 	name: z.string().min(2).max(80),
 	email: z.string().email(),
 	phone: z.string().max(30).optional(),
-	password: z.string().min(8).max(128),
-	role: z.enum(['tourist', 'driver', 'admin'])
+	password: z.string().min(8).max(128)
 });
 
 const loginSchema = z.object({
@@ -37,6 +42,11 @@ const tokenSchema = z.object({ token: z.string().min(8).max(256) });
 const phoneLoginSchema = z.object({
 	phone: z.string().min(8).max(20),
 	role: z.enum(['tourist', 'driver']).optional()
+});
+
+const phoneVerifySchema = z.object({
+	phone: z.string().min(8).max(20),
+	code: z.string().regex(/^[0-9]{6}$/, 'Enter the 6-digit code.')
 });
 
 function toPublicUser(row: {
@@ -79,7 +89,6 @@ authRouter.post('/register', async (req, res) => {
 	const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
 	if (exists) throw err.conflict('An account with this email already exists.', 'EMAIL_TAKEN');
 
-	const status = body.role === 'driver' ? 'pending' : 'active';
 	let phone: string | null = body.phone ?? null;
 	if (phone) {
 		try {
@@ -88,11 +97,12 @@ authRouter.post('/register', async (req, res) => {
 			// keep the raw value if it cannot be normalized
 		}
 	}
+	// Role is hard-coded, not taken from the request. See registerSchema above.
 	const info = db
 		.prepare(
-			'INSERT INTO users (name, email, phone, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, 0)'
+			"INSERT INTO users (name, email, phone, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, 'tourist', 'active', 0)"
 		)
-		.run(body.name.trim(), email, phone, hashPassword(body.password), body.role, status);
+		.run(body.name.trim(), email, phone, hashPassword(body.password));
 
 	const userId = Number(info.lastInsertRowid);
 
@@ -145,6 +155,13 @@ authRouter.post('/login', (req, res) => {
 	res.json({ token: signToken({ id: row.id, role: row.role }), user: toPublicUser(row) });
 });
 
+/**
+ * Step 1 of phone login. Confirms the number is live on its operator network
+ * (a pre-check, not proof of possession), then texts a single-use code. It
+ * deliberately reports the same success shape whether or not an account
+ * already exists, so this endpoint cannot be used to enumerate registered
+ * numbers.
+ */
 authRouter.post('/phone-login', async (req, res) => {
 	const body = phoneLoginSchema.parse(req.body);
 	const phone = normalizePhone(body.phone);
@@ -152,6 +169,8 @@ authRouter.post('/phone-login', async (req, res) => {
 		throw err.rateLimited('Too many attempts. Try again later.');
 	}
 
+	// Operator lookup: proves the MSISDN is active on the network. It does NOT
+	// prove the caller holds the SIM — that is what the OTP below is for.
 	if (!config.phoneMock) {
 		if (!canVerify(phone.operator)) {
 			throw err.badRequest(
@@ -166,6 +185,57 @@ authRouter.post('/phone-login', async (req, res) => {
 		}
 	}
 
+	// A suspended account should not be able to trigger SMS at all.
+	const existing = db.prepare('SELECT status FROM users WHERE phone = ?').get(phone.e164) as
+		| { status: PublicUser['status'] }
+		| undefined;
+	if (existing?.status === 'suspended') throw err.forbidden('This account has been suspended.');
+
+	const { code, expiresAt } = issueOtp(phone.e164, body.role ?? 'tourist');
+	await sendSms(
+		phone.e164,
+		`Your SipiRider login code is ${code}. It expires in ${config.otp.ttlMin} minutes. Never share it with anyone.`
+	);
+
+	res.json({
+		message: 'We sent a 6-digit code to your phone.',
+		phone: phone.e164,
+		expiresAt: expiresAt.toISOString(),
+		expiresInSeconds: config.otp.ttlMin * 60,
+		// Dev affordance only: never populated unless PHONE_MOCK is on.
+		...(config.phoneMock ? { devCode: code } : {})
+	});
+});
+
+/**
+ * Step 2 of phone login. Consumes the code, then finds or creates the account
+ * and issues the JWT. The role comes from the stored challenge, not from this
+ * request, so a client cannot switch roles between the two steps.
+ */
+authRouter.post('/phone-login/verify', (req, res) => {
+	const body = phoneVerifySchema.parse(req.body);
+	const phone = normalizePhone(body.phone);
+	if (!rateLimit(`phoneverify:${phone.e164}`, 20, 60 * 60 * 1000)) {
+		throw err.rateLimited('Too many attempts. Try again later.');
+	}
+
+	const result = verifyOtp(phone.e164, body.code);
+	if (!result.ok) {
+		switch (result.reason) {
+			case 'NO_CODE':
+				throw err.badRequest('Request a new code to continue.', 'OTP_NOT_FOUND');
+			case 'EXPIRED':
+				throw err.badRequest('That code has expired. Request a new one.', 'OTP_EXPIRED');
+			case 'TOO_MANY_ATTEMPTS':
+				throw err.rateLimited('Too many incorrect attempts. Request a new code.');
+			default:
+				throw err.badRequest(
+					`Incorrect code. ${result.attemptsLeft} attempt${result.attemptsLeft === 1 ? '' : 's'} left.`,
+					'OTP_INVALID'
+				);
+		}
+	}
+
 	const existing = db
 		.prepare(
 			'SELECT id, name, email, phone, role, status, email_verified, created_at FROM users WHERE phone = ?'
@@ -174,16 +244,26 @@ authRouter.post('/phone-login', async (req, res) => {
 
 	if (existing) {
 		if (existing.status === 'suspended') throw err.forbidden('This account has been suspended.');
-		if (existing.status === 'pending') throw err.forbidden('Your account is pending approval.');
+		// Drivers awaiting verification still need to sign in to finish
+		// onboarding and watch their application status. They are blocked from
+		// accepting rides in routes/rides.ts, not here.
+		if (existing.status === 'pending' && existing.role !== 'driver') {
+			throw err.forbidden('Your account is pending approval.', 'ACCOUNT_PENDING');
+		}
+		// The OTP just proved possession of this number.
+		db.prepare('UPDATE users SET phone_verified = 1 WHERE id = ?').run(existing.id);
 		res.json({ token: signToken({ id: existing.id, role: existing.role }), user: toPublicUser(existing) });
 		return;
 	}
 
+	// New account. Drivers land in 'pending' so phone signup cannot bypass the
+	// approval gate that /register applies; riders are active immediately.
+	const status = result.role === 'driver' ? 'pending' : 'active';
 	const info = db
 		.prepare(
-			"INSERT INTO users (name, email, phone, password_hash, role, status, email_verified, phone_verified) VALUES ('Rider', NULL, ?, ?, ?, 'active', 0, 1)"
+			"INSERT INTO users (name, email, phone, password_hash, role, status, email_verified, phone_verified) VALUES ('Rider', NULL, ?, ?, ?, ?, 0, 1)"
 		)
-		.run(phone.e164, hashPassword(randomBytes(24).toString('hex')), body.role ?? 'tourist');
+		.run(phone.e164, hashPassword(randomBytes(24).toString('hex')), result.role, status);
 	const id = Number(info.lastInsertRowid);
 	const created = db
 		.prepare('SELECT id, name, email, phone, role, status, email_verified, created_at FROM users WHERE id = ?')

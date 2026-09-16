@@ -158,6 +158,30 @@ ridesRouter.post('/:id/cancel', requireAuth, (req, res) => {
 
 ridesRouter.post('/:id/accept', requireAuth, requireRole('driver'), (req, res) => {
 	const { id } = idParamSchema.parse(req.params);
+
+	// Role alone is not enough: the whole product promise is that the person
+	// who turns up is an admin-verified association driver. Check the driver
+	// record itself before letting them claim a rider.
+	const driver = db
+		.prepare('SELECT verified, online FROM drivers WHERE user_id = ?')
+		.get(req.user!.id) as { verified: number; online: number } | undefined;
+
+	if (!driver) {
+		throw err.forbidden(
+			'Complete driver onboarding before accepting rides.',
+			'DRIVER_PROFILE_MISSING'
+		);
+	}
+	if (driver.verified !== 1) {
+		throw err.forbidden(
+			'Your driver account is pending admin verification. You cannot accept rides yet.',
+			'DRIVER_NOT_VERIFIED'
+		);
+	}
+	if (driver.online !== 1) {
+		throw err.forbidden('Go online before accepting rides.', 'DRIVER_OFFLINE');
+	}
+
 	// Single conditional UPDATE: only one driver can ever claim a searching ride.
 	const info = db
 		.prepare(
