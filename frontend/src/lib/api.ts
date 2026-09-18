@@ -134,7 +134,6 @@ export async function setDriverOnline(online: boolean): Promise<void> {
 
 export async function submitDriverOnboarding(input: {
 	fullName: string;
-	phone: string;
 	association: string;
 	vehicleClassId: string;
 }): Promise<void> {
@@ -179,6 +178,23 @@ export async function getProfile(): Promise<{
 	return http('/api/profile', { token: requireToken() });
 }
 
-export async function updateProfile(input: { name?: string; phone?: string }): Promise<void> {
+export async function updateProfile(input: { name?: string }): Promise<void> {
 	await http('/api/profile', { method: 'PATCH', token: requireToken(), body: input });
+}
+
+/**
+ * Step 1 of changing the account phone: texts a code to the NEW number.
+ * Nothing is saved until confirmPhoneChange() succeeds.
+ */
+export async function startPhoneChange(phone: string): Promise<{ phone: string; devCode?: string }> {
+	return http('/api/profile/phone', { method: 'POST', token: requireToken(), body: { phone } });
+}
+
+/** Step 2: confirms the code and saves the number as verified. */
+export async function confirmPhoneChange(phone: string, code: string): Promise<void> {
+	await http('/api/profile/phone/verify', {
+		method: 'POST',
+		token: requireToken(),
+		body: { phone, code }
+	});
 }

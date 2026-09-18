@@ -6,7 +6,7 @@ import { err } from '../errors';
 import { hashPassword, verifyPassword } from '../lib/password';
 import { signToken } from '../lib/jwt';
 import { issueVerificationToken, verifyEmailToken } from '../lib/tokens';
-import { issueOtp, verifyOtp } from '../lib/otp';
+import { issueOtp, verifyOtp, assertOtpSendAllowed, assertOtpVerifyAllowed } from '../lib/otp';
 import { sendEmail } from '../lib/mailer';
 import { sendSms } from '../lib/sms';
 import { rateLimit } from '../lib/rateLimit';
@@ -165,9 +165,11 @@ authRouter.post('/login', (req, res) => {
 authRouter.post('/phone-login', async (req, res) => {
 	const body = phoneLoginSchema.parse(req.body);
 	const phone = normalizePhone(body.phone);
-	if (!rateLimit(`phonelogin:${phone.e164}`, 10, 60 * 60 * 1000)) {
-		throw err.rateLimited('Too many attempts. Try again later.');
-	}
+
+	// Shared with the profile phone-change flow so neither can be used to
+	// bypass the other's SMS budget. req.ip is only as trustworthy as the
+	// `trust proxy` setting — set it in app.ts if you run behind a proxy.
+	assertOtpSendAllowed(phone.e164, req.ip ?? 'unknown');
 
 	// Operator lookup: proves the MSISDN is active on the network. It does NOT
 	// prove the caller holds the SIM — that is what the OTP below is for.
@@ -215,9 +217,7 @@ authRouter.post('/phone-login', async (req, res) => {
 authRouter.post('/phone-login/verify', (req, res) => {
 	const body = phoneVerifySchema.parse(req.body);
 	const phone = normalizePhone(body.phone);
-	if (!rateLimit(`phoneverify:${phone.e164}`, 20, 60 * 60 * 1000)) {
-		throw err.rateLimited('Too many attempts. Try again later.');
-	}
+	assertOtpVerifyAllowed(phone.e164);
 
 	const result = verifyOtp(phone.e164, body.code);
 	if (!result.ok) {
@@ -234,6 +234,12 @@ authRouter.post('/phone-login/verify', (req, res) => {
 					'OTP_INVALID'
 				);
 		}
+	}
+
+	// A code issued for a profile phone change belongs to an existing session
+	// and must not be redeemable as a sign-in.
+	if (result.userId !== null) {
+		throw err.badRequest('Request a new code to continue.', 'OTP_NOT_FOUND');
 	}
 
 	const existing = db

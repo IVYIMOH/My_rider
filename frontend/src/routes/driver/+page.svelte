@@ -65,14 +65,30 @@
 
 	// Dispatch board: available ride requests + the driver's active ride,
 	// polled so new requests and status changes show up automatically.
+	// The board is now gated server-side on verified + online, so its 403s are
+	// expected states rather than errors — surface them as guidance.
+	let boardNotice = $state<string | null>(null);
+
 	async function loadRides() {
 		if (!isAuthenticated()) return;
 		ridesLoading = true;
 		ridesError = null;
 		try {
-			const [available, mine] = await Promise.all([getAvailableRides(), getRides()]);
-			availableRides = available;
+			const mine = await getRides();
 			activeRide = mine.find((r) => r.status === 'active') ?? null;
+
+			try {
+				availableRides = await getAvailableRides();
+				boardNotice = null;
+			} catch (e) {
+				availableRides = [];
+				const code = e instanceof ApiError ? e.code : '';
+				if (code === 'DRIVER_OFFLINE' || code === 'DRIVER_NOT_VERIFIED' || code === 'DRIVER_PROFILE_MISSING') {
+					boardNotice = (e as Error).message;
+				} else {
+					ridesError = (e as Error).message;
+				}
+			}
 		} catch (e) {
 			ridesError = (e as Error).message;
 		} finally {
@@ -211,8 +227,8 @@
 				</div>
 				{#if ridesError}
 					<p class="mt-2 rounded-xl bg-red-50 px-3 py-2 text-caption font-medium text-red-700">{ridesError}</p>
-				{:else if !online}
-					<p class="mt-2 text-caption text-text-muted">Go online to receive ride requests.</p>
+				{:else if boardNotice}
+					<p class="mt-2 text-caption text-text-muted">{boardNotice}</p>
 				{:else if availableRides.length === 0}
 					<p class="mt-2 text-caption text-text-muted">No ride requests right now.</p>
 				{:else}

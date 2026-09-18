@@ -96,7 +96,24 @@ export const config = {
 		/** Lifetime of a login code, in minutes. Short by design. */
 		ttlMin: Number(process.env.OTP_TTL_MIN ?? 5),
 		/** Wrong guesses allowed before the code is burned. */
-		maxAttempts: Number(process.env.OTP_MAX_ATTEMPTS ?? 5)
+		maxAttempts: Number(process.env.OTP_MAX_ATTEMPTS ?? 5),
+		/**
+		 * SMS-send limits. Phone numbers are visible to admins and appear on
+		 * ride cards, so knowing a number must not let anyone spray it with
+		 * texts. Three independent gates, all fixed-window and in-memory:
+		 *
+		 *   perPhoneHour  — texts to ONE number per hour, whoever asks
+		 *   cooldownSec   — minimum gap between texts to one number
+		 *   perIpHour     — total sends from ONE client per hour, across all
+		 *                   numbers, so an actor cannot spray many victims
+		 *
+		 * verifyPerPhoneHour caps code submissions; the per-code attempt cap
+		 * (maxAttempts) is the tighter control and burns the code.
+		 */
+		perPhoneHour: Number(process.env.OTP_REQUESTS_PER_PHONE_HOUR ?? 5),
+		cooldownSec: Number(process.env.OTP_COOLDOWN_SECONDS ?? 60),
+		perIpHour: Number(process.env.OTP_REQUESTS_PER_IP_HOUR ?? 20),
+		verifyPerPhoneHour: Number(process.env.OTP_VERIFY_PER_PHONE_HOUR ?? 20)
 	},
 	sms: {
 		/**

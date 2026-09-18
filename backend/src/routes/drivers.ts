@@ -15,7 +15,9 @@ const patchSchema = z.object({
 
 const onboardingSchema = z.object({
 	fullName: z.string().min(2).max(80),
-	phone: z.string().min(7).max(30),
+	/** Accepted for backwards compatibility but ignored — the account's phone is
+	 *  already proven by OTP at sign-in and must not be overwritten from here. */
+	phone: z.string().min(7).max(30).optional(),
 	association: z.string().min(2).max(120),
 	vehicleClassId: z.string().min(1)
 });
@@ -80,6 +82,34 @@ function respondProfile(req: Request, res: Response) {
 	});
 }
 
+/**
+ * Takes a driver offline, banking the time they were online. Safe to call when
+ * they are already offline.
+ */
+function goOffline(row: DriverRow): void {
+	if (row.online !== 1) return;
+	const delta = computeOnlineSeconds(row) - row.online_seconds;
+	db.prepare(
+		'UPDATE drivers SET online = 0, online_at = NULL, online_seconds = online_seconds + ? WHERE id = ?'
+	).run(delta, row.id);
+}
+
+/**
+ * Admin verification approves a specific driver on a specific vehicle class,
+ * for a specific association — so changing either invalidates the approval.
+ * Without this a driver could be verified as "Kampala Tourist Taxis / car" and
+ * then quietly switch to a coach under an unreviewed association while keeping
+ * the Verified badge.
+ */
+function revokeVerificationForReReview(row: DriverRow): void {
+	if (row.verified !== 1) return;
+	goOffline(row);
+	db.prepare('UPDATE drivers SET verified = 0 WHERE id = ?').run(row.id);
+	console.log(
+		`[drivers] driver #${row.id} changed association/vehicle class after approval — verification revoked, needs re-review`
+	);
+}
+
 driversRouter.use(requireAuth, requireRole('driver'));
 
 driversRouter.get('/me', (req, res) => respondProfile(req, res));
@@ -89,25 +119,48 @@ driversRouter.patch('/me', (req, res) => {
 	const row = getDriverRow(req.user!.id);
 	if (!row) throw err.notFound('Driver profile not found. Complete onboarding first.');
 
-	if (typeof body.online === 'boolean') {
-		if (body.online && row.online !== 1) {
-			db.prepare("UPDATE drivers SET online = 1, online_at = datetime('now') WHERE id = ?").run(row.id);
-		} else if (!body.online && row.online === 1) {
-			const delta = computeOnlineSeconds(row) - row.online_seconds;
-			db.prepare(
-				'UPDATE drivers SET online = 0, online_at = NULL, online_seconds = online_seconds + ? WHERE id = ?'
-			).run(delta, row.id);
-		}
-	}
-	if (body.association !== undefined) {
-		db.prepare('UPDATE drivers SET association = ? WHERE id = ?').run(body.association, row.id);
-	}
-	if (body.vehicleClassId !== undefined) {
+	// Apply the reviewable fields first: if either changes, verification is
+	// revoked, which must be reflected before the online request is judged.
+	const associationChanged =
+		body.association !== undefined && body.association.trim() !== (row.association ?? '');
+	const classChanged =
+		body.vehicleClassId !== undefined && body.vehicleClassId !== (row.vehicle_class_id ?? '');
+
+	if (classChanged) {
 		const vc = db.prepare('SELECT id FROM vehicle_classes WHERE id = ?').get(body.vehicleClassId);
 		if (!vc) throw err.notFound('Unknown vehicle class.');
+	}
+	if (associationChanged) {
+		db.prepare('UPDATE drivers SET association = ? WHERE id = ?').run(body.association!.trim(), row.id);
+	}
+	if (classChanged) {
 		db.prepare('UPDATE drivers SET vehicle_class_id = ? WHERE id = ?').run(body.vehicleClassId, row.id);
 	}
-	res.json({ profile: {} });
+	if (associationChanged || classChanged) {
+		revokeVerificationForReReview(row);
+	}
+
+	if (typeof body.online === 'boolean') {
+		// Re-read: the block above may have just revoked verification.
+		const current = getDriverRow(req.user!.id)!;
+		if (body.online) {
+			if (current.verified !== 1) {
+				throw err.forbidden(
+					associationChanged || classChanged
+						? 'Your details changed and need admin re-verification before you can go online.'
+						: 'Your driver account is pending admin verification. You cannot go online yet.',
+					'DRIVER_NOT_VERIFIED'
+				);
+			}
+			if (current.online !== 1) {
+				db.prepare("UPDATE drivers SET online = 1, online_at = datetime('now') WHERE id = ?").run(current.id);
+			}
+		} else {
+			goOffline(current);
+		}
+	}
+
+	return respondProfile(req, res);
 });
 
 driversRouter.post('/onboarding', (req, res) => {
@@ -115,19 +168,23 @@ driversRouter.post('/onboarding', (req, res) => {
 	const vc = db.prepare('SELECT id FROM vehicle_classes WHERE id = ?').get(body.vehicleClassId);
 	if (!vc) throw err.notFound('Unknown vehicle class.');
 
-	db.prepare('UPDATE users SET name = ?, phone = ? WHERE id = ?').run(
-		body.fullName.trim(),
-		body.phone.trim(),
-		req.user!.id
-	);
+	// Phone is proven by OTP at sign-in; onboarding must not overwrite the
+	// normalized E.164 value with whatever was retyped here.
+	db.prepare('UPDATE users SET name = ? WHERE id = ?').run(body.fullName.trim(), req.user!.id);
 
 	const existing = getDriverRow(req.user!.id);
 	if (existing) {
+		// Same reviewable fields as PATCH /me — resubmitting onboarding is
+		// another way to change them, so it revokes approval the same way.
+		const changed =
+			body.association.trim() !== (existing.association ?? '') ||
+			body.vehicleClassId !== (existing.vehicle_class_id ?? '');
 		db.prepare('UPDATE drivers SET association = ?, vehicle_class_id = ? WHERE id = ?').run(
 			body.association.trim(),
 			body.vehicleClassId,
 			existing.id
 		);
+		if (changed) revokeVerificationForReReview(existing);
 	} else {
 		db.prepare(
 			'INSERT INTO drivers (user_id, association, vehicle_class_id, verified, rating, online) VALUES (?, ?, ?, 0, 0, 0)'

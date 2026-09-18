@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../db';
 import { err } from '../errors';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requireRole, requireActiveDriver } from '../middleware/auth';
 import { calculateFare } from '../lib/fares';
 import type { PricingConfig, Ride, RideDriver, RideStatus, VehicleClass } from '../types';
 
@@ -127,7 +127,9 @@ ridesRouter.get('/', requireAuth, (req, res) => {
 	res.json({ rides: rows.map((r) => mapRide(r as Record<string, unknown>)) });
 });
 
-ridesRouter.get('/available', requireAuth, requireRole('driver'), (_req, res) => {
+// The ride board is driver-facing operational data (rider pickup points,
+// destinations, fares) — same gate as claiming a ride, not just role.
+ridesRouter.get('/available', requireAuth, requireRole('driver'), requireActiveDriver, (_req, res) => {
 	const rows = db
 		.prepare("SELECT * FROM rides WHERE status = 'searching' AND driver_id IS NULL ORDER BY id DESC")
 		.all();
@@ -156,33 +158,12 @@ ridesRouter.post('/:id/cancel', requireAuth, (req, res) => {
 	res.json({ ride: loadRide(id) });
 });
 
-ridesRouter.post('/:id/accept', requireAuth, requireRole('driver'), (req, res) => {
+ridesRouter.post('/:id/accept', requireAuth, requireRole('driver'), requireActiveDriver, (req, res) => {
 	const { id } = idParamSchema.parse(req.params);
 
-	// Role alone is not enough: the whole product promise is that the person
-	// who turns up is an admin-verified association driver. Check the driver
-	// record itself before letting them claim a rider.
-	const driver = db
-		.prepare('SELECT verified, online FROM drivers WHERE user_id = ?')
-		.get(req.user!.id) as { verified: number; online: number } | undefined;
-
-	if (!driver) {
-		throw err.forbidden(
-			'Complete driver onboarding before accepting rides.',
-			'DRIVER_PROFILE_MISSING'
-		);
-	}
-	if (driver.verified !== 1) {
-		throw err.forbidden(
-			'Your driver account is pending admin verification. You cannot accept rides yet.',
-			'DRIVER_NOT_VERIFIED'
-		);
-	}
-	if (driver.online !== 1) {
-		throw err.forbidden('Go online before accepting rides.', 'DRIVER_OFFLINE');
-	}
-
-	// Single conditional UPDATE: only one driver can ever claim a searching ride.
+	// requireActiveDriver has already confirmed an onboarded, admin-verified,
+	// online driver. Single conditional UPDATE: only one driver can ever claim
+	// a searching ride.
 	const info = db
 		.prepare(
 			`UPDATE rides SET driver_id = ?, status = 'active', updated_at = datetime('now')

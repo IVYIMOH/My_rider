@@ -33,16 +33,19 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
 	created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- One-time phone login codes. Keyed by phone rather than user_id because the
+-- One-time phone codes. Keyed by phone rather than user_id because the
 -- account may not exist yet (phone login is find-or-create). Codes are stored
--- as a SHA-256 hash bound to the phone number, are single-use, and carry the
+-- as a bcrypt hash bound to the phone number, are single-use, and carry the
 -- requested role so a client cannot escalate between the start and verify
 -- steps. The attempts counter caps brute-forcing of the 6-digit space.
+-- user_id is NULL for login codes and set for profile phone-change codes,
+-- where the challenge belongs to an already-signed-in account.
 CREATE TABLE IF NOT EXISTS phone_otps (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	phone TEXT NOT NULL,
 	code_hash TEXT NOT NULL,
 	role TEXT NOT NULL CHECK (role IN ('tourist','driver')),
+	user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
 	attempts INTEGER NOT NULL DEFAULT 0,
 	expires_at TEXT NOT NULL,
 	used_at TEXT,
@@ -116,6 +119,14 @@ CREATE INDEX IF NOT EXISTS idx_rides_user ON rides(user_id);
 CREATE INDEX IF NOT EXISTS idx_rides_driver ON rides(driver_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 `);
+
+// Migration: phone_otps.user_id was added after the table shipped, to support
+// re-verifying a phone number from the profile screen. Additive and nullable,
+// so a plain ALTER is enough.
+const otpColumns = db.prepare('PRAGMA table_info(phone_otps)').all() as Array<{ name: string }>;
+if (!otpColumns.some((c) => c.name === 'user_id')) {
+	db.exec('ALTER TABLE phone_otps ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+}
 
 // Migration: phone-first identity. Pre-existing databases have email NOT NULL
 // (and may lack phone_verified). Rebuild users to allow email-less phone-only
@@ -236,4 +247,20 @@ function seed() {
 	insertMessage.run({ convo: convo.lastInsertRowid, sender: userIds.tourist, body: 'Perfect, thank you Peter.' });
 }
 
-seed();
+// Demo data is opt-in, never inferred. Seeding a real database would create a
+// known-password admin (admin@sipirider.com / admin1234) plus seven fake
+// accounts, so it requires an explicit ALLOW_SEED=true rather than keying off
+// NODE_ENV — which can silently differ between the server process and a
+// one-off `npm run create-admin` in another shell.
+if (process.env.ALLOW_SEED === 'true') {
+	seed();
+} else {
+	const userCount = (db.prepare('SELECT COUNT(*) AS c FROM users').get() as { c: number }).c;
+	if (userCount === 0) {
+		console.log(
+			'[db] Empty database and ALLOW_SEED is not "true" — skipping demo seed.\n' +
+				'[db]   production: npm run create-admin -- --email <you> --name "<name>"\n' +
+				'[db]   local dev:  set ALLOW_SEED=true to load demo users, drivers and rides'
+		);
+	}
+}

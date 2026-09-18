@@ -26,6 +26,26 @@ function assertParticipant(convoId: number, userId: number): void {
 	if (row.user_a !== userId && row.user_b !== userId) throw err.forbidden();
 }
 
+/**
+ * True when the two users are the rider and the driver on some ride — past,
+ * present, cancelled or completed. This is the relationship that entitles them
+ * to message each other.
+ *
+ * Existence of the recipient is NOT a relationship: without this check any
+ * signed-in account could walk the sequential user ids and open a thread with
+ * every rider on the platform.
+ */
+function shareARide(a: number, b: number): boolean {
+	const row = db
+		.prepare(
+			`SELECT 1 FROM rides
+			 WHERE (user_id = ? AND driver_id = ?) OR (user_id = ? AND driver_id = ?)
+			 LIMIT 1`
+		)
+		.get(a, b, b, a);
+	return !!row;
+}
+
 messagesRouter.use(requireAuth);
 
 messagesRouter.get('/', (req, res) => {
@@ -84,6 +104,15 @@ messagesRouter.post('/', (req, res) => {
 	const recipient = db.prepare('SELECT id FROM users WHERE id = ?').get(body.recipientId);
 	if (!recipient) throw err.notFound('Recipient not found.');
 	if (body.recipientId === req.user!.id) throw err.badRequest('You cannot message yourself.');
+
+	// Checked before find-or-create, not only before create: otherwise a thread
+	// opened while this endpoint was unguarded could still be posted into.
+	if (!shareARide(req.user!.id, body.recipientId)) {
+		throw err.forbidden(
+			'You can only message a driver or rider you share a trip with.',
+			'NO_SHARED_RIDE'
+		);
+	}
 
 	let convo = findConversation(req.user!.id, body.recipientId);
 	if (!convo) {

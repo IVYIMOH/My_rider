@@ -42,3 +42,36 @@ export function requireRole(...roles: Role[]) {
 		next();
 	};
 }
+
+/**
+ * Gates anything that treats the caller as a working driver: seeing the ride
+ * board, claiming a ride, and anything added later.
+ *
+ * This lives in one place on purpose. The same three conditions were first
+ * enforced only on POST /rides/:id/accept, which left GET /rides/available
+ * handing full ride details — pickup, destination, fare — to unapproved
+ * accounts. Compose this instead of re-deriving the check per route.
+ *
+ * Use as: router.get('/path', requireAuth, requireRole('driver'), requireActiveDriver, handler)
+ */
+export function requireActiveDriver(req: Request, _res: Response, next: NextFunction): void {
+	if (!req.user) throw err.unauthorized();
+
+	const driver = db
+		.prepare('SELECT verified, online FROM drivers WHERE user_id = ?')
+		.get(req.user.id) as { verified: number; online: number } | undefined;
+
+	if (!driver) {
+		throw err.forbidden('Complete driver onboarding first.', 'DRIVER_PROFILE_MISSING');
+	}
+	if (driver.verified !== 1) {
+		throw err.forbidden(
+			'Your driver account is pending admin verification.',
+			'DRIVER_NOT_VERIFIED'
+		);
+	}
+	if (driver.online !== 1) {
+		throw err.forbidden('Go online to see and accept ride requests.', 'DRIVER_OFFLINE');
+	}
+	next();
+}

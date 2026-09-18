@@ -49,7 +49,6 @@
 		try {
 			await submitDriverOnboarding({
 				fullName,
-				phone: verifiedPhone,
 				association,
 				vehicleClassId
 			});
