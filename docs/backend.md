@@ -397,7 +397,7 @@ backend/
 - Auth is **OTP-based**: `send-otp` generates a 6-digit code (10-min expiry, stored in `otp_codes`), `verify-otp` issues a 72-hour JWT. SMS is a **console log stub** (`services/sms.go`).
 - **Bookings** (`pending → confirmed → declined → completed`) with emergency contact + a unique `share_token`; `GET /api/trips/share/:token` exposes a public trip summary (driver name/photo/vehicle/sacco/trip date/status).
 - **Ratings** (1–5) allowed only on completed bookings; recomputes the driver's `average_rating` and `trip_count`.
-- **SOS** (`POST /api/bookings/:id/sos`) sends an SMS alert with a Google-Maps link to the booking's emergency contact.
+- **SOS** (`POST /api/bookings/:id/sos`) sends an SMS alert with an OpenStreetMap link to the booking's emergency contact.
 
 ```mermaid
 stateDiagram-v2

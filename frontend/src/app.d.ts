@@ -1,5 +1,3 @@
-/// <reference types="google.maps" />
-
 // See https://svelte.dev/docs/kit/types#app.d.ts
 // for information about these interfaces
 declare global {

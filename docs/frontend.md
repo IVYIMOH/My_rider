@@ -4,8 +4,8 @@ The rider-facing mobile app. Package name `sipirider`, in `frontend/`.
 
 - **Framework:** SvelteKit 5 (runes) + Tailwind CSS v4, built as a **static SPA** (`adapter-static`, `fallback: index.html`)
 - **Mobile:** Capacitor 8 (native `android/` and `ios/` folders wrap the static build)
-- **PWA:** `vite-plugin-pwa` (generateSW + autoUpdate), Google Maps runtime caching
-- **Maps:** Google Maps JS API via `@googlemaps/js-api-loader`
+- **PWA:** `vite-plugin-pwa` (generateSW + autoUpdate), OpenStreetMap tile runtime caching
+- **Maps:** OpenStreetMap raster tiles via `leaflet` (no API key)
 - **State:** one Svelte store — `session` (JWT) in `src/lib/auth.ts`
 - **API base:** `VITE_API_BASE_URL` (default `http://localhost:8080`)
 
@@ -17,7 +17,7 @@ flowchart LR
     V["vite.config.ts<br/>Tailwind v4 + VitePWA"] --> SRC
     C["capacitor.config.ts<br/>Capacitor 8"] --> SRC
     SRC --> API["Backend REST :8080"]
-    SRC --> GM["Google Maps JS API"]
+    SRC --> GM["OpenStreetMap tiles (Leaflet)"]
 ```
 
 ---
@@ -197,7 +197,7 @@ Notes:
 - Fares are **computed on-device** from the pricing config (`computeFare`), matching the server formula.
 - Booking requires a session; if absent a `PhoneLoginForm` is injected inline and the request retried after success.
 - "Chat with driver" starts or reuses a conversation with the assigned driver and navigates to the thread.
-- The map (`MapWrapper.svelte`) loads Google Maps with a custom teal style, renders an `AdvancedMarkerElement` at Sheraton Kampala, and shows a graceful fallback when no API key is configured.
+- The map (`MapWrapper.svelte`) renders OpenStreetMap tiles with Leaflet, draws a circular marker at Sheraton Kampala, applies the app's teal palette, and shows a graceful fallback if tiles fail to load.
 
 ---
 
@@ -271,7 +271,7 @@ Shows the driver identity card (name, association, verified badge), a stats grid
 
 - `generateSW` / `autoUpdate` / `injectRegister: auto`; manifest name "Sipi Rider — Ride with locals you trust", portrait standalone, teal theme.
 - Icons are provided in `static/icons/`: `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`.
-- Workbox `runtimeCaching` for `maps.googleapis.com` uses **NetworkFirst** (`google-maps-cache`, max 50 entries, 24h) so map assets never go stale offline.
+- Workbox `runtimeCaching` for `*.tile.openstreetmap.org` uses **NetworkFirst** (`openstreetmap-tiles`, max 200 entries, 7 days) so map tiles stay available offline.
 
 ---
 
@@ -279,10 +279,10 @@ Shows the driver identity card (name, association, verified badge), a stats grid
 
 | File | Notes |
 |---|---|
-| `vite.config.ts` | Tailwind v4, SvelteKit, VitePWA; dev port `5173`; `ssr.noExternal: ['@googlemaps/js-api-loader']` (CJS named-export fix) |
+| `vite.config.ts` | Tailwind v4, SvelteKit, VitePWA; dev port `5173`; Workbox tile caching for OpenStreetMap |
 | `svelte.config.js` | `adapter-static` → `dist/` with `fallback: index.html` (SPA mode for Capacitor) |
 | `capacitor.config.ts` | `appId: 'app.sipirider'`, `appName: 'Sipi Rider'`, `webDir: 'dist'` |
-| `.env` | `VITE_API_BASE_URL`, `VITE_GOOGLE_MAPS_API_KEY` (gitignored) |
+| `.env` | `VITE_API_BASE_URL` (gitignored) |
 | `.npmrc` | `engine-strict=true` |
 
 The backend must be reachable at `VITE_API_BASE_URL`; screens show a network error otherwise.

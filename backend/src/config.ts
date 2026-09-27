@@ -61,7 +61,7 @@ export const config = {
 	port: Number(process.env.PORT ?? 8080),
 	dbPath: process.env.DB_PATH ?? './sipi.db',
 	jwtSecret: resolveJwtSecret(),
-	publicBaseUrl: process.env.PUBLIC_BASE_URL ?? 'http://localhost:5174',
+	publicBaseUrl: process.env.PUBLIC_BASE_URL ?? 'http://localhost:5175',
 	verifyTokenTtlMin: Number(process.env.VERIFY_TOKEN_TTL_MIN ?? 60),
 	smtp: {
 		host: process.env.SMTP_HOST ?? '',

@@ -35,14 +35,14 @@ export default defineConfig({
 			},
 			workbox: {
 				globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
-				// Google Maps tiles / scripts are network-first, never cached stale
+				// OpenStreetMap tiles are network-first, never cached stale
 				runtimeCaching: [
 					{
-						urlPattern: /^https:\/\/maps\.googleapis\.com\/.*/i,
+						urlPattern: /^https:\/\/[abc]\.tile\.openstreetmap\.org\/.*/i,
 						handler: 'NetworkFirst',
 						options: {
-							cacheName: 'google-maps-cache',
-							expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 }
+							cacheName: 'openstreetmap-tiles',
+							expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 7 }
 						}
 					}
 				]
@@ -54,10 +54,5 @@ export default defineConfig({
 	],
 	server: {
 		port: 5173
-	},
-	ssr: {
-		// @googlemaps/js-api-loader is CommonJS; bundle it so named imports
-		// (Loader) resolve during the dev-server SSR pass.
-		noExternal: ['@googlemaps/js-api-loader']
 	}
 });

@@ -40,7 +40,7 @@ npm install
 npm run dev        # vite dev  →  http://localhost:5173
 ```
 
-Set `VITE_API_BASE_URL` if the backend is not on `http://localhost:8080`. `VITE_GOOGLE_MAPS_API_KEY` is used for the map screens.
+Set `VITE_API_BASE_URL` if the backend is not on `http://localhost:8080`. Map screens use OpenStreetMap tiles via Leaflet and require no API key.
 
 ### 3. Admin console
 

@@ -35,7 +35,7 @@ flowchart LR
     E["MTN Uganda<br/>Number Verification"] -. "phone check" .-> B
     F["Safaricom Daraja<br/>(Kenya)"] -. "phone check" .-> B
     G["Gmail SMTP<br/>(Nodemailer)"] -. "verification email" .-> B
-    H["Google Maps JS API"] -. "maps" .-> A
+    H["OpenStreetMap tiles<br/>(Leaflet)"] -. "maps" .-> A
 ```
 
 Key characteristics:
@@ -93,7 +93,6 @@ Client env vars:
 | App | Variable | Default |
 |---|---|---|
 | frontend | `VITE_API_BASE_URL` | `http://localhost:8080` |
-| frontend | `VITE_GOOGLE_MAPS_API_KEY` | (set in `.env`) |
 | admin | `VITE_API_BASE_URL` | `http://localhost:8080` |
 
 ---
@@ -358,7 +357,7 @@ Until commit `5fca844` (chore: remove Go/Fiber prototype), `backend/` also conta
 - **Realtime:** no websockets/SSE. Live ride status and messages use short polling intervals (`setInterval`, ~5s) on the rider and driver screens.
 - **Rate limiting:** in-memory, fixed-window (`src/lib/rateLimit.ts`) — applied to `phone-login` (10/hr/phone) and `resend-verification` (3/hr). Not shared across processes; resets on restart.
 - **Caching:** token caches for MTN/Daraja OAuth bearer tokens (in-memory, refreshed before expiry). No Redis, no job queue.
-- **PWA / offline:** the rider app registers a Workbox service worker (generateSW) and caches Google Maps scripts/tiles with a NetworkFirst strategy.
+- **PWA / offline:** the rider app registers a Workbox service worker (generateSW) and caches OpenStreetMap tiles (Leaflet) with a NetworkFirst strategy.
 - **Security considerations:**
   - `.env` (gitignored) may hold live MTN/Daraja credentials; treat as sensitive.
   - `PHONE_MOCK=true` must be disabled in production.
