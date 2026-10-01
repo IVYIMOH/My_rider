@@ -60,6 +60,13 @@ function resolveJwtSecret(): string {
 export const config = {
 	port: Number(process.env.PORT ?? 8080),
 	dbPath: process.env.DB_PATH ?? './sipi.db',
+	/**
+	 * Demo data is opt-in, never inferred. Seeding creates a known-password
+	 * admin plus fake accounts, so it requires an explicit "true" rather than
+	 * keying off NODE_ENV. Never set in production. See the seed block in
+	 * src/db.ts.
+	 */
+	allowSeed: process.env.ALLOW_SEED === 'true',
 	jwtSecret: resolveJwtSecret(),
 	publicBaseUrl: process.env.PUBLIC_BASE_URL ?? 'http://localhost:5174',
 	verifyTokenTtlMin: Number(process.env.VERIFY_TOKEN_TTL_MIN ?? 60),

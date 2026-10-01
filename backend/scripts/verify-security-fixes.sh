@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verifies the four security fixes against a running backend on a scratch DB.
+# Verifies the security fixes (#1-#5, F1-F4, C(ii)) against a scratch DB and server.
 # Usage: bash scripts/verify-security-fixes.sh
 # Provisions its own seeded scratch DB and server — see "Harness provisioning" below.
 set -uo pipefail
@@ -293,7 +293,7 @@ check "pending ADMIN blocked at /phone-login/verify (phone path)" "ACCOUNT_PENDI
 
 echo
 echo "=============================================================="
-echo " 7. F1 — the ride board is gated, not just /accept"
+echo " 6. F1 — the ride board is gated, not just /accept"
 echo "=============================================================="
 # Reuse the exact pending-driver token shape from the F1 finding: a phone
 # signup that never onboarded and was never approved.
@@ -313,7 +313,7 @@ check "onboarded but unverified: board rejected" "DRIVER_NOT_VERIFIED" \
 
 echo
 echo "=============================================================="
-echo " 8. F3 — online requires verification; changes revoke it"
+echo " 7. F3 — online requires verification; changes revoke it"
 echo "=============================================================="
 check "unverified driver cannot go online" "DRIVER_NOT_VERIFIED" \
   "$(curl -s -X PATCH $API/api/drivers/me -H 'Content-Type: application/json' -H "Authorization: Bearer $PDT" \
@@ -340,7 +340,7 @@ check "and the accept gate now rejects them" "DRIVER_NOT_VERIFIED" \
 
 echo
 echo "=============================================================="
-echo " 8b. C(ii) — an ADMIN revoke also forces offline"
+echo " 8. C(ii) — an ADMIN revoke also forces offline"
 echo "=============================================================="
 # Section 8 covers the self-service path: PATCH /api/drivers/me, which routes
 # through revokeVerificationForReReview() and so calls goOffline(). This covers
@@ -444,7 +444,7 @@ check "cannot claim a number another account holds" "PHONE_TAKEN" \
 
 echo
 echo "=============================================================="
-echo " 10b. F2 (part 2) — EXISTING threads need a shared ride too"
+echo " 11. F2 (part 2) — EXISTING threads need a shared ride too"
 echo "=============================================================="
 # Section 9 only proves thread CREATION is gated. This covers the other three
 # paths, which used to accept historical participation on its own.
@@ -491,7 +491,7 @@ fi
 
 echo
 echo "=============================================================="
-echo " 11. OTP send rate limiting (last — deliberately exhausts the IP budget)"
+echo " 12. OTP send rate limiting (last — deliberately exhausts the IP budget)"
 echo "=============================================================="
 VICTIM='+256772777001'
 S1=$(curl -s -o /dev/null -w '%{http_code}' -X POST $API/api/auth/phone-login \

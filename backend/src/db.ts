@@ -252,7 +252,7 @@ function seed() {
 // accounts, so it requires an explicit ALLOW_SEED=true rather than keying off
 // NODE_ENV — which can silently differ between the server process and a
 // one-off `npm run create-admin` in another shell.
-if (process.env.ALLOW_SEED === 'true') {
+if (config.allowSeed) {
 	seed();
 } else {
 	const userCount = (db.prepare('SELECT COUNT(*) AS c FROM users').get() as { c: number }).c;
