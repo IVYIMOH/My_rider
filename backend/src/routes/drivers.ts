@@ -4,6 +4,13 @@ import { z } from 'zod';
 import { db } from '../db';
 import { err } from '../errors';
 import { requireAuth, requireRole } from '../middleware/auth';
+import {
+	computeOnlineSeconds,
+	getDriverByUserId as getDriverRow,
+	goOffline,
+	revokeVerification
+} from '../lib/driverState';
+import type { DriverRow } from '../lib/driverState';
 
 export const driversRouter = Router();
 
@@ -21,31 +28,6 @@ const onboardingSchema = z.object({
 	association: z.string().min(2).max(120),
 	vehicleClassId: z.string().min(1)
 });
-
-interface DriverRow {
-	id: number;
-	user_id: number;
-	association: string | null;
-	vehicle_class_id: string | null;
-	verified: number;
-	rating: number;
-	online: number;
-	online_at: string | null;
-	online_seconds: number;
-}
-
-function getDriverRow(userId: number): DriverRow | undefined {
-	return db.prepare('SELECT * FROM drivers WHERE user_id = ?').get(userId) as DriverRow | undefined;
-}
-
-function computeOnlineSeconds(row: DriverRow): number {
-	let seconds = row.online_seconds;
-	if (row.online && row.online_at) {
-		const started = new Date(row.online_at.replace(' ', 'T') + 'Z').getTime();
-		seconds += Math.floor((Date.now() - started) / 1000);
-	}
-	return seconds;
-}
 
 function buildStats(userId: number, row: DriverRow) {
 	const earnings = db
@@ -82,34 +64,6 @@ function respondProfile(req: Request, res: Response) {
 	});
 }
 
-/**
- * Takes a driver offline, banking the time they were online. Safe to call when
- * they are already offline.
- */
-function goOffline(row: DriverRow): void {
-	if (row.online !== 1) return;
-	const delta = computeOnlineSeconds(row) - row.online_seconds;
-	db.prepare(
-		'UPDATE drivers SET online = 0, online_at = NULL, online_seconds = online_seconds + ? WHERE id = ?'
-	).run(delta, row.id);
-}
-
-/**
- * Admin verification approves a specific driver on a specific vehicle class,
- * for a specific association — so changing either invalidates the approval.
- * Without this a driver could be verified as "Kampala Tourist Taxis / car" and
- * then quietly switch to a coach under an unreviewed association while keeping
- * the Verified badge.
- */
-function revokeVerificationForReReview(row: DriverRow): void {
-	if (row.verified !== 1) return;
-	goOffline(row);
-	db.prepare('UPDATE drivers SET verified = 0 WHERE id = ?').run(row.id);
-	console.log(
-		`[drivers] driver #${row.id} changed association/vehicle class after approval — verification revoked, needs re-review`
-	);
-}
-
 driversRouter.use(requireAuth, requireRole('driver'));
 
 driversRouter.get('/me', (req, res) => respondProfile(req, res));
@@ -137,7 +91,11 @@ driversRouter.patch('/me', (req, res) => {
 		db.prepare('UPDATE drivers SET vehicle_class_id = ? WHERE id = ?').run(body.vehicleClassId, row.id);
 	}
 	if (associationChanged || classChanged) {
-		revokeVerificationForReReview(row);
+		// Approval is for a specific driver on a specific vehicle class under a
+		// specific association, so changing either invalidates it. Without this a
+		// driver approved as "Kampala Tourist Taxis / car" could quietly switch to
+		// a coach under an unreviewed association and keep the Verified badge.
+		revokeVerification(row, 'association or vehicle class changed after approval');
 	}
 
 	if (typeof body.online === 'boolean') {
@@ -184,7 +142,7 @@ driversRouter.post('/onboarding', (req, res) => {
 			body.vehicleClassId,
 			existing.id
 		);
-		if (changed) revokeVerificationForReReview(existing);
+		if (changed) revokeVerification(existing, 'onboarding re-submitted with different details');
 	} else {
 		db.prepare(
 			'INSERT INTO drivers (user_id, association, vehicle_class_id, verified, rating, online) VALUES (?, ?, ?, 0, 0, 0)'

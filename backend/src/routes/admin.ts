@@ -5,6 +5,7 @@ import { err } from '../errors';
 import { hashPassword } from '../lib/password';
 import { normalizePhone } from '../lib/phone';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { getDriverById, revokeVerification } from '../lib/driverState';
 import type { PricingConfig, UserStatus } from '../types';
 
 export const adminRouter = Router();
@@ -131,9 +132,20 @@ adminRouter.get('/drivers', (_req, res) => {
 adminRouter.patch('/drivers/:id', (req, res) => {
 	const body = driverPatchSchema.parse(req.body);
 	const id = Number(req.params.id);
-	const row = db.prepare('SELECT id FROM drivers WHERE id = ?').get(id);
+	const row = getDriverById(id);
 	if (!row) throw err.notFound('Driver not found.');
-	db.prepare('UPDATE drivers SET verified = ? WHERE id = ?').run(body.verified ? 1 : 0, id);
+
+	if (body.verified) {
+		db.prepare('UPDATE drivers SET verified = 1 WHERE id = ?').run(id);
+	} else {
+		// Not a bare `UPDATE drivers SET verified = 0`: revoking from here has to
+		// take the driver offline and bank their online time exactly like the
+		// self-service path in routes/drivers.ts, or an admin can leave a row at
+		// online = 1 while verified = 0. See revokeVerification() for why both
+		// halves matter.
+		revokeVerification(row, 'revoked by an admin');
+	}
+
 	res.json({ id, verified: body.verified });
 });
 

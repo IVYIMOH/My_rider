@@ -1,11 +1,129 @@
 #!/usr/bin/env bash
 # Verifies the four security fixes against a running backend on a scratch DB.
 # Usage: bash scripts/verify-security-fixes.sh
+# Provisions its own seeded scratch DB and server — see "Harness provisioning" below.
 set -uo pipefail
 
-API=${API:-http://localhost:8099}
+# ---------------------------------------------------------------------------
+# Harness provisioning
+#
+# This script owns its whole environment: a throwaway SQLite DB seeded with the
+# demo fixtures the cases below reference by name and phone number, a server
+# started against that DB alone, and a log file case 1 reads the emailed
+# verification token out of. It never touches ./sipi.db, and it pins dotenv at
+# an empty file so a developer's backend/.env cannot quietly change what is
+# being asserted. Everything is torn down on exit, including on Ctrl-C.
+#
+# Env knobs:
+#   PORT=8099         port the scratch server listens on
+#   API=http://host   test an already-running server instead of starting one
+#   LOG=/tmp/...      server log the verification-token grep reads
+#   KEEP_SCRATCH=1    leave the scratch DB on disk for inspection
+# ---------------------------------------------------------------------------
+BACKEND_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+PORT=${PORT:-8099}
+LOG=${LOG:-/tmp/sipi-api.log}
+KEEP_SCRATCH=${KEEP_SCRATCH:-}
+# An explicit API means "use that server"; otherwise we start our own.
+if [ -n "${API:-}" ]; then OWN_SERVER=no; else OWN_SERVER=yes; fi
+API=${API:-http://localhost:$PORT}
+
+SCRATCH_DIR=""
+SERVER_PID=""
+SERVER_PGID=""
+SCRIPT_PGID=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
+
+die() { echo "  ABORT  $*" >&2; exit 1; }
+
+stop_server() {
+  [ -n "$SERVER_PID" ] || return 0
+  # tsx runs the app in a child process, so signal the whole group. Falls back
+  # to pid + children if setsid did not give us a group of our own.
+  if [ -n "$SERVER_PGID" ] && [ "$SERVER_PGID" != "$SCRIPT_PGID" ]; then
+    kill -TERM "-$SERVER_PGID" 2>/dev/null
+  else
+    pkill -TERM -P "$SERVER_PID" 2>/dev/null
+    kill -TERM "$SERVER_PID" 2>/dev/null
+  fi
+  wait "$SERVER_PID" 2>/dev/null
+  SERVER_PID=""
+}
+
+cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  stop_server
+  if [ -n "$SCRATCH_DIR" ]; then
+    if [ -n "$KEEP_SCRATCH" ]; then echo "  (scratch DB kept at $SCRATCH_DIR)"
+    else rm -rf "$SCRATCH_DIR"; fi
+  fi
+  exit $status
+}
+trap cleanup EXIT INT TERM
+
+start_server() {
+  command -v curl >/dev/null 2>&1 || die "curl is required"
+  command -v python3 >/dev/null 2>&1 || die "python3 is required (used to read JSON)"
+  [ -d "$BACKEND_DIR/node_modules" ] || die "run 'npm install' in $BACKEND_DIR first"
+  if curl -fsS "$API/api/health" >/dev/null 2>&1; then
+    die "something is already listening on $API — stop it, or set API=$API to test against it"
+  fi
+
+  SCRATCH_DIR=$(mktemp -d "${TMPDIR:-/tmp}/sipi-verify.XXXXXX") || die "could not create a scratch dir"
+  : >"$SCRATCH_DIR/empty.env"
+  : >"$LOG" || die "cannot write $LOG"
+
+  echo "Starting a scratch API for this run"
+  echo "  url:        $API"
+  echo "  scratch DB: $SCRATCH_DIR/sipi.db  (ALLOW_SEED=true, removed on exit)"
+  echo "  server log: $LOG"
+
+  cd "$BACKEND_DIR" || die "cannot enter $BACKEND_DIR"
+  # setsid puts the server in its own process group so teardown can signal the
+  # whole tree; without it stop_server falls back to pid + direct children.
+  local setsid=""
+  command -v setsid >/dev/null 2>&1 && setsid=setsid
+  $setsid env \
+    DOTENV_CONFIG_PATH="$SCRATCH_DIR/empty.env" \
+    DB_PATH="$SCRATCH_DIR/sipi.db" \
+    ALLOW_SEED=true \
+    PHONE_MOCK=true \
+    NODE_ENV=development \
+    PORT="$PORT" \
+    JWT_SECRET="verify-harness-$$-$RANDOM$RANDOM" \
+    SMTP_HOST= \
+    SMS_GATEWAY_URL= \
+    npx tsx src/index.ts >>"$LOG" 2>&1 &
+  SERVER_PID=$!
+  SERVER_PGID=$(ps -o pgid= -p "$SERVER_PID" 2>/dev/null | tr -d ' ')
+
+  local i
+  for i in $(seq 1 120); do
+    if curl -fsS "$API/api/health" >/dev/null 2>&1; then
+      echo "  ready after $((i / 2))s"
+      return 0
+    fi
+    if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+      echo "--- last 30 lines of $LOG ---" >&2; tail -n 30 "$LOG" >&2
+      die "the API exited before it was ready"
+    fi
+    sleep 0.5
+  done
+  echo "--- last 30 lines of $LOG ---" >&2; tail -n 30 "$LOG" >&2
+  die "the API did not answer /api/health within 60s"
+}
+
+if [ "$OWN_SERVER" = yes ]; then
+  start_server
+else
+  echo "Testing the API already running at $API (reading $LOG for the verification token)"
+  [ -f "$LOG" ] || die "$LOG does not exist — that server must log to it for case 1 to work"
+fi
+
 PASS=0; FAIL=0
 # j <key> [key...] — reads stdin JSON and walks the given keys, printing '' if absent.
+# Booleans print as JSON's true/false, not Python's True/False, so expectations
+# below can be written as the API actually returns them.
 j() { python3 -c '
 import sys, json
 try:
@@ -15,12 +133,39 @@ except Exception:
 for k in sys.argv[1:]:
     d = d.get(k) if isinstance(d, dict) else None
     if d is None: break
-print("" if d is None else d)
+if isinstance(d, bool):
+    print("true" if d else "false")
+else:
+    print("" if d is None else d)
 ' "$@"; }
 check() { # check <label> <expected> <actual>
   if [ "$2" = "$3" ]; then echo "  PASS  $1"; PASS=$((PASS+1));
   else echo "  FAIL  $1 (expected '$2', got '$3')"; FAIL=$((FAIL+1)); fi
 }
+
+# dbq <sql> — prints the first column of the first row from the scratch DB.
+# dbx <sql> — runs a statement against it, printing lastInsertRowid.
+#
+# These drive the backend's own better-sqlite3 (already a dependency) instead of
+# the sqlite3 CLI, which is not installed everywhere. Reads open the file
+# read-only; better-sqlite3's default busy timeout covers the brief moments the
+# server holds a write lock. Only usable when we started the server ourselves,
+# since otherwise its DB path is unknown.
+db_node() {
+  ( cd "$BACKEND_DIR" && DB_FILE="$SCRATCH_DIR/sipi.db" SQL="$1" MODE="$2" \
+    node --input-type=module -e '
+import Database from "better-sqlite3";
+const db = new Database(process.env.DB_FILE, { readonly: process.env.MODE === "read" });
+if (process.env.MODE === "read") {
+  const row = db.prepare(process.env.SQL).get();
+  console.log(row === undefined ? "" : String(Object.values(row)[0] ?? ""));
+} else {
+  console.log(String(db.prepare(process.env.SQL).run().lastInsertRowid));
+}
+' )
+}
+dbq() { db_node "$1" read; }
+dbx() { db_node "$1" write; }
 
 echo
 echo "=============================================================="
@@ -28,7 +173,7 @@ echo " 1. /register ignores role and always creates a tourist"
 echo "=============================================================="
 curl -s -X POST $API/api/auth/register -H 'Content-Type: application/json' \
   -d '{"name":"Mallory Attacker","email":"mallory@evil.test","password":"password123","role":"admin"}' >/dev/null
-TOKEN=$(grep -o 'token=[a-f0-9]*' /tmp/sipi-api.log | tail -1 | cut -d= -f2)
+TOKEN=$(grep -o 'token=[a-f0-9]*' "$LOG" | tail -1 | cut -d= -f2)
 curl -s "$API/api/auth/verify-email?token=$TOKEN" >/dev/null
 MAL=$(curl -s -X POST $API/api/auth/login -H 'Content-Type: application/json' \
   -d '{"email":"mallory@evil.test","password":"password123"}')
@@ -195,6 +340,60 @@ check "and the accept gate now rejects them" "DRIVER_NOT_VERIFIED" \
 
 echo
 echo "=============================================================="
+echo " 8b. C(ii) — an ADMIN revoke also forces offline"
+echo "=============================================================="
+# Section 8 covers the self-service path: PATCH /api/drivers/me, which routes
+# through revokeVerificationForReReview() and so calls goOffline(). This covers
+# the admin-panel path, PATCH /api/admin/drivers/:id — a separate handler that
+# has to hold the same invariant: nobody is online without being verified.
+curl -s -o /dev/null -X PATCH $API/api/admin/drivers/$PD_DID -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $ADMT" -d '{"verified":true}'
+curl -s -o /dev/null -X PATCH $API/api/drivers/me -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $PDT" -d '{"online":true}'
+BEFORE=$(curl -s $API/api/drivers/me -H "Authorization: Bearer $PDT")
+check "driver is verified AND online before the revoke" "true|true" \
+  "$(echo "$BEFORE" | j profile verified)|$(echo "$BEFORE" | j profile online)"
+
+# online_seconds banks whole seconds, so leave it something to bank.
+sleep 2
+
+REVOKED=$(curl -s -X PATCH $API/api/admin/drivers/$PD_DID -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $ADMT" -d '{"verified":false}')
+check "admin revoke reports verified=false" "false" "$(echo "$REVOKED" | j verified)"
+
+AFTER_REVOKE=$(curl -s $API/api/drivers/me -H "Authorization: Bearer $PDT")
+check "verification is cleared" "false" "$(echo "$AFTER_REVOKE" | j profile verified)"
+check "admin revoke ALSO forces the driver offline" "false" "$(echo "$AFTER_REVOKE" | j profile online)"
+
+# profile.online is the drivers.online column projected straight through
+# (src/routes/drivers.ts), but read the row itself too — that is where the
+# invariant actually has to hold.
+if [ -n "$SCRATCH_DIR" ]; then
+  check "drivers.online is 0 in the database itself" "0" \
+    "$(dbq "SELECT online FROM drivers WHERE id = $PD_DID")"
+  check "drivers.online_at is cleared" "" \
+    "$(dbq "SELECT online_at FROM drivers WHERE id = $PD_DID")"
+else
+  echo "  SKIP  direct DB read (testing a server we did not start, so its DB path is unknown)"
+fi
+
+# Banked, not still accruing: a driver left at online = 1 keeps counting up.
+BANKED=$(echo "$AFTER_REVOKE" | j stats onlineSeconds)
+sleep 2
+LATER=$(curl -s $API/api/drivers/me -H "Authorization: Bearer $PDT" | j stats onlineSeconds)
+check "online_seconds was banked, not left accruing" "$BANKED" "$LATER"
+case "$BANKED" in
+  ''|0) echo "  FAIL  the online stretch was banked at all (got '$BANKED' seconds)"; FAIL=$((FAIL+1));;
+  *)    echo "  PASS  the online stretch was banked at all ($BANKED seconds)"; PASS=$((PASS+1));;
+esac
+
+check "board gate rejects the de-verified driver" "DRIVER_NOT_VERIFIED" \
+  "$(curl -s $API/api/rides/available -H "Authorization: Bearer $PDT" | j error code)"
+check "accept gate rejects the de-verified driver" "DRIVER_NOT_VERIFIED" \
+  "$(curl -s -X POST $API/api/rides/1/accept -H "Authorization: Bearer $PDT" | j error code)"
+
+echo
+echo "=============================================================="
 echo " 9. F2 — messaging requires a shared ride"
 echo "=============================================================="
 # The exact exploit: unapproved driver -> tourist #2, no ride between them.
@@ -203,7 +402,13 @@ check "pending driver cannot DM an unrelated rider" "NO_SHARED_RIDE" \
      -d '{"recipientId":2,"body":"Unsolicited message"}' | j error code)"
 
 # Normal path: seeded ride #1 links tourist #2 and driver Peter (#5).
-T2=$(login_phone '+256700000002' tourist | j token)
+# Amara (#2) signs in by email, not by phone: section 2 already texted
+# +256700000002, and a second code inside the per-number cooldown (see
+# assertOtpSendAllowed in src/lib/otp.ts) 429s with no devCode, which would
+# leave this section and section 10 with no session at all. Neither section
+# is testing phone login.
+T2=$(curl -s -X POST $API/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"tourist@sipirider.com","password":"tourist1234"}' | j token)
 check "rider CAN message the driver they share a ride with" "1" \
   "$(curl -s -X POST $API/api/messages -H 'Content-Type: application/json' -H "Authorization: Bearer $T2" \
      -d '{"recipientId":5,"body":"See you at the Sheraton"}' | j conversationId)"
@@ -215,7 +420,7 @@ echo "=============================================================="
 check "PATCH /api/profile no longer writes phone" "+256700000002" \
   "$(curl -s -X PATCH $API/api/profile -H 'Content-Type: application/json' -H "Authorization: Bearer $T2" \
      -d '{"phone":"+256779555888"}' >/dev/null; curl -s $API/api/profile -H "Authorization: Bearer $T2" | j profile phone)"
-check "and the verified badge is intact (nothing changed)" "True" \
+check "and the verified badge is intact (nothing changed)" "true" \
   "$(curl -s $API/api/profile -H "Authorization: Bearer $T2" | j profile phoneVerified)"
 
 PCODE=$(curl -s -X POST $API/api/profile/phone -H 'Content-Type: application/json' -H "Authorization: Bearer $T2" \
@@ -232,10 +437,57 @@ curl -s -o /dev/null -X POST $API/api/profile/phone/verify -H 'Content-Type: app
   -d "{\"phone\":\"+256779555999\",\"code\":\"$PCODE2\"}"
 AFTER_P=$(curl -s $API/api/profile -H "Authorization: Bearer $T2")
 check "confirmed code saves the new number" "+256779555999" "$(echo "$AFTER_P" | j profile phone)"
-check "and it is marked verified" "True" "$(echo "$AFTER_P" | j profile phoneVerified)"
+check "and it is marked verified" "true" "$(echo "$AFTER_P" | j profile phoneVerified)"
 check "cannot claim a number another account holds" "PHONE_TAKEN" \
   "$(curl -s -X POST $API/api/profile/phone -H 'Content-Type: application/json' -H "Authorization: Bearer $T2" \
      -d '{"phone":"+256700111222"}' | j error code)"
+
+echo
+echo "=============================================================="
+echo " 10b. F2 (part 2) — EXISTING threads need a shared ride too"
+echo "=============================================================="
+# Section 9 only proves thread CREATION is gated. This covers the other three
+# paths, which used to accept historical participation on its own.
+#
+# The thread is planted straight into the DB because the API will no longer
+# create one: it stands in for a thread opened before the gate existed. David
+# (#3, tourist) and Joseph (#6, driver) share no ride.
+if [ -z "$SCRATCH_DIR" ]; then
+  echo "  SKIP  needs a scratch DB to plant a legacy thread (testing a server we did not start)"
+else
+  LEGACY_ID=$(dbx "INSERT INTO conversations (user_a, user_b) VALUES (3, 6)")
+  dbx "INSERT INTO messages (conversation_id, sender_id, body) VALUES ($LEGACY_ID, 6, 'Legacy thread, no shared ride')" >/dev/null
+  echo "        (planted legacy thread #$LEGACY_ID between users 3 and 6)"
+
+  D3=$(curl -s -X POST $API/api/auth/login -H 'Content-Type: application/json' \
+    -d '{"email":"david@sipirider.com","password":"tourist1234"}' | j token)
+  check "participant on a legacy thread cannot READ it" "NO_SHARED_RIDE" \
+    "$(curl -s $API/api/messages/$LEGACY_ID -H "Authorization: Bearer $D3" | j error code)"
+  check "participant on a legacy thread cannot POST into it" "NO_SHARED_RIDE" \
+    "$(curl -s -X POST $API/api/messages/$LEGACY_ID -H 'Content-Type: application/json' \
+       -H "Authorization: Bearer $D3" -d '{"body":"still there?"}' | j error code)"
+  check "legacy thread is hidden from the thread list" "absent" \
+    "$(curl -s $API/api/messages -H "Authorization: Bearer $D3" | python3 -c "
+import sys, json
+ids = [c['id'] for c in json.load(sys.stdin).get('conversations', [])]
+print('present' if $LEGACY_ID in ids else 'absent')")"
+  check "the row is retained, not deleted (admins still need the history)" "1" \
+    "$(dbq "SELECT COUNT(*) FROM conversations WHERE id = $LEGACY_ID")"
+  check "a non-participant is still refused before the ride check" "403" \
+    "$(curl -s -o /dev/null -w '%{http_code}' $API/api/messages/1 -H "Authorization: Bearer $D3")"
+
+  # And the legitimate thread — Amara (#2) and Peter (#5), linked by ride #1 —
+  # must be entirely unaffected by all of the above.
+  check "ride-linked thread is still listed" "1" \
+    "$(curl -s $API/api/messages -H "Authorization: Bearer $T2" | python3 -c "
+import sys, json
+print(len([c for c in json.load(sys.stdin).get('conversations', []) if c['id'] == 1]))")"
+  check "ride-linked thread is still readable" "200" \
+    "$(curl -s -o /dev/null -w '%{http_code}' $API/api/messages/1 -H "Authorization: Bearer $T2")"
+  check "ride-linked thread still accepts posts" "201" \
+    "$(curl -s -o /dev/null -w '%{http_code}' -X POST $API/api/messages/1 -H 'Content-Type: application/json' \
+       -H "Authorization: Bearer $T2" -d '{"body":"On my way"}')"
+fi
 
 echo
 echo "=============================================================="

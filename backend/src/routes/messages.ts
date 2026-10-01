@@ -18,14 +18,6 @@ function findConversation(a: number, b: number) {
 	);
 }
 
-function assertParticipant(convoId: number, userId: number): void {
-	const row = db
-		.prepare('SELECT user_a, user_b FROM conversations WHERE id = ?')
-		.get(convoId) as { user_a: number; user_b: number } | undefined;
-	if (!row) throw err.notFound('Conversation not found.');
-	if (row.user_a !== userId && row.user_b !== userId) throw err.forbidden();
-}
-
 /**
  * True when the two users are the rider and the driver on some ride — past,
  * present, cancelled or completed. This is the relationship that entitles them
@@ -46,6 +38,36 @@ function shareARide(a: number, b: number): boolean {
 	return !!row;
 }
 
+function noSharedRide() {
+	return err.forbidden('You can only message a driver or rider you share a trip with.', 'NO_SHARED_RIDE');
+}
+
+/**
+ * The gate for an existing thread. Membership is necessary but not sufficient:
+ * the ride relationship is re-checked on every read and every write, so a
+ * thread does not stay usable on the strength of having once been created.
+ *
+ * Membership is checked first on purpose, so a stranger probing thread ids
+ * cannot tell "you are not on this thread" apart from "you are, but you no
+ * longer share a ride" — the second answer would confirm the thread exists.
+ *
+ * Pre-existing threads with no qualifying ride are NOT grandfathered. Any that
+ * exist were opened before this check covered thread creation, which is exactly
+ * the access F2 was about, so honouring them would preserve the finding rather
+ * than close it. They are left in the database rather than deleted — an admin
+ * investigating harassment still needs the history — but they are unreachable
+ * through the API and hidden from the thread list below.
+ */
+function assertThreadAccess(convoId: number, userId: number): void {
+	const row = db
+		.prepare('SELECT user_a, user_b FROM conversations WHERE id = ?')
+		.get(convoId) as { user_a: number; user_b: number } | undefined;
+	if (!row) throw err.notFound('Conversation not found.');
+	if (row.user_a !== userId && row.user_b !== userId) throw err.forbidden();
+	const partnerId = row.user_a === userId ? row.user_b : row.user_a;
+	if (!shareARide(userId, partnerId)) throw noSharedRide();
+}
+
 messagesRouter.use(requireAuth);
 
 messagesRouter.get('/', (req, res) => {
@@ -62,22 +84,27 @@ messagesRouter.get('/', (req, res) => {
 		.all(req.user!.id, req.user!.id) as Array<Record<string, unknown>>;
 
 	res.json({
-		conversations: rows.map((r) => {
-			const partnerId = r.user_a === req.user!.id ? r.user_b : r.user_a;
-			const partnerName = r.user_a === req.user!.id ? r.b_name : r.a_name;
-			return {
-				id: r.id,
-				partnerId,
-				partnerName,
-				lastMessage: r.last_message ?? null
-			};
-		})
+		conversations: rows
+			// Same ride requirement as every other path here. Filtered in JS
+			// rather than as a SQL EXISTS so shareARide() stays the single
+			// definition of the relationship and cannot drift from a copy.
+			.filter((r) => shareARide(req.user!.id, (r.user_a === req.user!.id ? r.user_b : r.user_a) as number))
+			.map((r) => {
+				const partnerId = r.user_a === req.user!.id ? r.user_b : r.user_a;
+				const partnerName = r.user_a === req.user!.id ? r.b_name : r.a_name;
+				return {
+					id: r.id,
+					partnerId,
+					partnerName,
+					lastMessage: r.last_message ?? null
+				};
+			})
 	});
 });
 
 messagesRouter.get('/:id', (req, res) => {
 	const { id } = idParamSchema.parse(req.params);
-	assertParticipant(id, req.user!.id);
+	assertThreadAccess(id, req.user!.id);
 	const messages = db
 		.prepare(
 			`SELECT m.id, m.sender_id, u.name AS sender_name, m.body, m.created_at
@@ -91,7 +118,7 @@ messagesRouter.get('/:id', (req, res) => {
 messagesRouter.post('/:id', (req, res) => {
 	const { id } = idParamSchema.parse(req.params);
 	const body = sendSchema.parse(req.body);
-	assertParticipant(id, req.user!.id);
+	assertThreadAccess(id, req.user!.id);
 	const info = db
 		.prepare('INSERT INTO messages (conversation_id, sender_id, body) VALUES (?, ?, ?)')
 		.run(id, req.user!.id, body.body.trim());
@@ -105,13 +132,12 @@ messagesRouter.post('/', (req, res) => {
 	if (!recipient) throw err.notFound('Recipient not found.');
 	if (body.recipientId === req.user!.id) throw err.badRequest('You cannot message yourself.');
 
-	// Checked before find-or-create, not only before create: otherwise a thread
-	// opened while this endpoint was unguarded could still be posted into.
+	// Checked before find-or-create, not only before create, so re-opening an
+	// existing thread is gated too. This is one of four places the check runs:
+	// GET / filters on it, and GET /:id and POST /:id re-check it per request
+	// via assertThreadAccess(), so access cannot outlive the ride relationship.
 	if (!shareARide(req.user!.id, body.recipientId)) {
-		throw err.forbidden(
-			'You can only message a driver or rider you share a trip with.',
-			'NO_SHARED_RIDE'
-		);
+		throw noSharedRide();
 	}
 
 	let convo = findConversation(req.user!.id, body.recipientId);
