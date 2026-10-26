@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { redirect } from '@sveltejs/kit';
+	// import { redirect } from '@sveltejs/kit';
 	import { goto } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
 	import { login, resendVerification, isAuthenticated } from '$lib/auth';
 	import { ApiError } from '$lib/http';
 
-	if (isAuthenticated()) redirect(307, '/overview');
+	// if (isAuthenticated()) redirect(307, '/overview');
 
 	const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
