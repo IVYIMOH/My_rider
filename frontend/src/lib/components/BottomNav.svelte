@@ -1,47 +1,81 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import Icon from './Icon.svelte';
+
 	let { activeTab = $bindable('home') } = $props<{ activeTab?: string }>();
 
-	function navigate(tabName: string, path: string) {
-		activeTab = tabName;
-		goto(path);
-	}
+	const tabs = [
+		{ id: 'home', href: '/', icon: 'home', label: 'Home' },
+		{ id: 'bookings', href: '/bookings', icon: 'bookings', label: 'Bookings' },
+		{ id: 'map', href: '/map', icon: 'pin', label: 'Map' },
+		{ id: 'messages', href: '/messages', icon: 'messages', label: 'Messages' },
+		{ id: 'profile', href: '/profile', icon: 'profile', label: 'Profile' }
+	];
 </script>
 
-<nav class="w-full h-16 border-t border-border bg-white flex items-center justify-around shrink-0 pb-1 z-30">
-	<button 
-		type="button"
-		onclick={() => navigate('home', '/get-started')} 
-		class="flex flex-col items-center gap-0.5 flex-1 py-1 transition {activeTab === 'home' ? 'text-primary-teal font-semibold' : 'text-text-muted'}"
-	>
-		<span class="text-lg">🏠</span><span class="text-[11px]">Home</span>
-	</button>
-	<button 
-		type="button"
-		onclick={() => navigate('bookings', '/bookings')} 
-		class="flex flex-col items-center gap-0.5 flex-1 py-1 transition {activeTab === 'bookings' ? 'text-primary-teal font-semibold' : 'text-text-muted'}"
-	>
-		<span class="text-lg">📅</span><span class="text-[11px]">Bookings</span>
-	</button>
-	<button 
-		type="button"
-		onclick={() => navigate('map', '/map')} 
-		class="flex flex-col items-center gap-0.5 flex-1 py-1 transition {activeTab === 'map' ? 'text-primary-teal font-semibold' : 'text-text-muted'}"
-	>
-		<span class="text-lg">📍</span><span class="text-[11px]">Map</span>
-	</button>
-	<button 
-		type="button"
-		onclick={() => navigate('messages', '/messages')} 
-		class="flex flex-col items-center gap-0.5 flex-1 py-1 transition {activeTab === 'messages' ? 'text-primary-teal font-semibold' : 'text-text-muted'}"
-	>
-		<span class="text-lg">💬</span><span class="text-[11px]">Messages</span>
-	</button>
-	<button 
-		type="button"
-		onclick={() => navigate('profile', '/profile')} 
-		class="flex flex-col items-center gap-0.5 flex-1 py-1 transition {activeTab === 'profile' ? 'text-primary-teal font-semibold' : 'text-text-muted'}"
-	>
-		<span class="text-lg">👤</span><span class="text-[11px]">Profile</span>
-	</button>
+<nav class="bottom-nav" aria-label="Main navigation">
+	{#each tabs as tab}
+		<a
+			href={tab.href}
+			class:active={activeTab === tab.id}
+			aria-current={activeTab === tab.id ? 'page' : undefined}
+			onclick={() => activeTab = tab.id}
+		>
+			<span class="nav-icon" aria-hidden="true"><Icon name={tab.icon} size={21} /></span>
+			<span>{tab.label}</span>
+		</a>
+	{/each}
 </nav>
+
+<style>
+	.bottom-nav {
+		position: relative;
+		z-index: 30;
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		justify-content: space-around;
+		width: 100%;
+		min-height: 74px;
+		padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+		border-top: 1px solid var(--color-border);
+		background: white;
+	}
+
+	a {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		align-items: center;
+		gap: 3px;
+		min-width: 0;
+		min-height: 48px;
+		border-radius: 10px;
+		color: var(--color-text-muted);
+		font-size: 10px;
+		font-weight: 500;
+	}
+
+	.nav-icon {
+		display: grid;
+		place-items: center;
+		width: 46px;
+		height: 29px;
+		border-radius: 10px;
+	}
+
+	a.active {
+		color: var(--color-deep-teal);
+		font-weight: 700;
+	}
+
+	.active .nav-icon {
+		background: var(--color-light-teal);
+	}
+
+	@media (hover: hover) {
+		a:hover {
+			color: var(--color-deep-teal);
+			background: var(--color-bg);
+		}
+	}
+</style>

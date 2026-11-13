@@ -1,97 +1,443 @@
-<script>
+<script lang="ts">
+	import BottomNav from '$lib/components/BottomNav.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import RideScene from '$lib/components/RideScene.svelte';
 
-	const roles = [
-		{
-			href: '/get-started',
-			icon: 'person',
-			title: 'A Tourist',
-			desc: 'Book rides, upload passport or national ID for verification.'
-		},
-		{
-			href: '/onboarding/driver',
-			icon: 'car',
-			title: 'A Driver',
-			desc: 'Complete KYC and prove your taxi association membership.'
-		},
+	const shortcuts = [
+		{ href: '/get-started', icon: 'car', title: 'Ride', description: 'Get going' },
+		{ href: '/map', icon: 'compass', title: 'Explore', description: 'Discover Sipi' },
+		{ href: '/bookings', icon: 'bookings', title: 'My trips', description: 'Your bookings' }
 	];
 </script>
 
-<div class="app-frame">
+<svelte:head>
+	<title>SipiRider — Go places. Feel at home.</title>
+	<meta name="description" content="Explore with local drivers you can trust. Book a ride, discover Sipi, or join SipiRider as a verified taxi-association driver." />
+</svelte:head>
 
-	<div class="flex items-center gap-2 px-6 pt-2">
-		<div class="flex h-7 w-7 items-center justify-center rounded-full bg-primary-teal text-sm font-bold text-white">
-			S
-		</div>
-		<span class="text-body-lg font-semibold text-text-primary">SipiRider</span>
-	</div>
+<div class="app-frame home-screen">
+	<header class="home-header">
+		<a class="brand" href="/" aria-label="SipiRider home">
+			<span class="brand-mark" aria-hidden="true"><Icon name="pin" size={23} /></span>
+			<span>Sipi<span class="brand-accent">Rider</span><span class="brand-dot">.</span></span>
+		</a>
+		<a href="/profile" class="account-link" aria-label="Your account">
+			<Icon name="profile" size={21} />
+		</a>
+	</header>
 
-	<div class="px-6 pt-6">
-		<h1 class="text-[26px] font-semibold leading-tight text-text-primary">
-			Explore anywhere.<br />
-			<span class="text-primary-teal">Ride with locals you trust.</span>
-		</h1>
-		<p class="mt-3 text-body-rg text-text-muted">
-			Sipi Rider connects travelers with verified taxi-association drivers who know the roads,
-			the stories, and the shortcuts.
-		</p>
-	</div>
+	<main class="home-content">
+		<section class="journey-hero" aria-labelledby="welcome-title">
+			<div class="hero-copy">
+				<p class="eyebrow">A local connection. Every ride.</p>
+				<h1 id="welcome-title">Go places.<br /><span>Feel at home.</span></h1>
+			</div>
+			<div class="hero-scene"><RideScene /></div>
+			<span class="hero-caption"><span aria-hidden="true"></span> Your next adventure starts here</span>
+		</section>
 
-	<!-- Signature illustration: skyline + car, built from flat shapes in brand colors -->
-	<div class="mt-4 px-6">
-		<svg viewBox="0 0 400 140" class="w-full">
-			<rect x="0" y="60" width="46" height="70" fill="#E6F6F7" />
-			<rect x="52" y="30" width="40" height="100" fill="#F1F5F6" />
-			<rect x="98" y="70" width="34" height="60" fill="#E6F6F7" />
-			<circle cx="330" cy="45" r="26" fill="#E6F6F7" />
-			<g stroke="#149AA0" stroke-width="1.4" opacity="0.5">
-				<line x1="8" y1="72" x2="8" y2="118" />
-				<line x1="20" y1="72" x2="20" y2="118" />
-				<line x1="32" y1="72" x2="32" y2="118" />
-			</g>
-			<path
-				d="M60 132c40-4 70 6 100-2 34-9 60 4 92-2 30-6 58 2 88-3"
-				fill="none"
-				stroke="#CBD5E1"
-				stroke-width="2"
-			/>
-			<g transform="translate(150,88)">
-				<rect x="0" y="14" width="120" height="26" rx="8" fill="#0D6F75" />
-				<path d="M14 14 28 0h64l14 14z" fill="#149AA0" />
-				<rect x="34" y="4" width="52" height="12" rx="2" fill="#E6F6F7" opacity="0.6" />
-				<circle cx="28" cy="42" r="10" fill="#0F172A" />
-				<circle cx="28" cy="42" r="4" fill="#F6FAFB" />
-				<circle cx="94" cy="42" r="10" fill="#0F172A" />
-				<circle cx="94" cy="42" r="4" fill="#F6FAFB" />
-			</g>
-		</svg>
-	</div>
+		<a href="/get-started" class="ride-action">
+			<span class="ride-action-icon" aria-hidden="true"><Icon name="search" size={23} /></span>
+			<span class="ride-action-copy"><strong>Where are you headed?</strong><span>Find your next ride</span></span>
+			<Icon name="arrow-right" size={23} />
+		</a>
 
-	<div class="flex-1 px-6 pb-6 pt-6">
-		<p class="mb-3 text-caption font-semibold uppercase tracking-wide text-text-muted">
-			I'm joining as
-		</p>
-		<div class="flex flex-col gap-3">
-			{#each roles as role}
-				<a
-					href={role.href}
-					class="card flex items-center gap-3 transition active:scale-[0.98]"
-				>
-					<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-light-teal text-deep-teal">
-						<Icon name={role.icon} size={19} />
-					</div>
-					<div class="min-w-0 flex-1">
-						<p class="text-body-lg font-semibold text-text-primary">{role.title}</p>
-						<p class="text-caption text-text-muted">{role.desc}</p>
-					</div>
-					<Icon name="chevron" size={18} class="text-text-muted" />
-				</a>
-			{/each}
-		</div>
+		<section class="shortcuts-section" aria-labelledby="shortcuts-title">
+			<div class="section-heading">
+				<h2 id="shortcuts-title">Let's get moving</h2>
+				<span>Made for your everyday</span>
+			</div>
+			<div class="shortcuts">
+				{#each shortcuts as shortcut}
+					<a href={shortcut.href} class="shortcut">
+						<span class="shortcut-visual" aria-hidden="true"><Icon name={shortcut.icon} size={31} /></span>
+						<strong>{shortcut.title}</strong>
+						<span class="shortcut-description">{shortcut.description}</span>
+					</a>
+				{/each}
+			</div>
+		</section>
 
-		<p class="mt-6 text-center text-caption text-text-muted">
-			By continuing you agree to Sipi Rider's <span class="font-medium text-deep-teal">Terms</span>
-			&amp; <span class="font-medium text-deep-teal">Privacy Policy</span>.
-		</p>
-	</div>
+		<section class="trust-note" aria-labelledby="trust-title">
+			<span class="trust-icon" aria-hidden="true"><Icon name="shield" size={26} /></span>
+			<div>
+				<h2 id="trust-title">Local drivers. Peace of mind.</h2>
+				<p>Ride with verified taxi-association drivers<br class="wide-break" /> who know the way.</p>
+			</div>
+		</section>
+
+		<a class="driver-card" href="/onboarding/driver">
+			<div>
+				<span class="driver-eyebrow">Take the driver's seat</span>
+				<h2>Know the roads? Join us.</h2>
+				<span class="driver-link">Drive with SipiRider <Icon name="arrow-right" size={16} /></span>
+			</div>
+			<span class="driver-art" aria-hidden="true"><Icon name="steering" size={43} /></span>
+		</a>
+	</main>
+
+	<div class="home-navigation"><BottomNav activeTab="home" /></div>
 </div>
+
+<style>
+	.home-screen {
+		background: white;
+		--home-gutter: 22px;
+	}
+
+	.home-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: calc(20px + env(safe-area-inset-top, 0px)) var(--home-gutter) 18px;
+	}
+
+	.brand {
+		display: inline-flex;
+		align-items: center;
+		gap: 9px;
+		font-size: 23px;
+		font-weight: 750;
+		letter-spacing: -1px;
+	}
+
+	.brand-mark {
+		display: grid;
+		place-items: center;
+		width: 34px;
+		height: 38px;
+		border-radius: 12px;
+		background: var(--color-deep-teal);
+		color: white;
+	}
+
+	.brand-accent, .brand-dot {
+		color: var(--color-deep-teal);
+	}
+
+	.brand-dot {
+		color: var(--color-primary-teal);
+	}
+
+	.account-link {
+		display: grid;
+		place-items: center;
+		width: 44px;
+		height: 44px;
+		border: 1px solid var(--color-border);
+		border-radius: 50%;
+		color: var(--color-text-primary);
+	}
+
+	.home-content {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		padding: 0 var(--home-gutter) 24px;
+	}
+
+	.journey-hero {
+		position: relative;
+		isolation: isolate;
+		height: 250px;
+		overflow: hidden;
+		border-radius: 22px;
+		background: var(--color-light-teal);
+	}
+
+	.hero-copy {
+		position: relative;
+		z-index: 1;
+		padding: 22px 22px 0;
+	}
+
+	.eyebrow {
+		color: var(--color-deep-teal);
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 1.25px;
+		text-transform: uppercase;
+	}
+
+	h1 {
+		margin-top: 10px;
+		font-size: 34px;
+		font-weight: 750;
+		line-height: 1.12;
+		letter-spacing: -1.5px;
+	}
+
+	h1 span {
+		color: var(--color-deep-teal);
+	}
+
+	.hero-scene {
+		position: absolute;
+		inset: auto 0 0;
+		z-index: -1;
+	}
+
+	.hero-caption {
+		position: absolute;
+		bottom: 13px;
+		left: 22px;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		color: var(--color-deep-teal);
+		font-size: 10px;
+		font-weight: 550;
+	}
+
+	.hero-caption > span {
+		width: 5px;
+		height: 5px;
+		border-radius: 50%;
+		background: var(--color-primary-teal);
+	}
+
+	.ride-action {
+		display: flex;
+		align-items: center;
+		gap: 13px;
+		min-height: 72px;
+		margin-top: 14px;
+		padding: 13px 17px;
+		border-radius: 17px;
+		background: var(--color-deep-teal);
+		color: white;
+		box-shadow: 0 5px 12px color-mix(in srgb, var(--color-deep-teal) 13%, transparent);
+	}
+
+	.ride-action-icon {
+		display: grid;
+		place-items: center;
+	}
+
+	.ride-action-copy {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.ride-action-copy strong {
+		font-size: 16px;
+		font-weight: 650;
+		letter-spacing: -0.3px;
+	}
+
+	.ride-action-copy > span {
+		color: var(--color-light-teal);
+		font-size: 11px;
+	}
+
+	.shortcuts-section {
+		margin-top: 25px;
+	}
+
+	.section-heading {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		margin-bottom: 12px;
+	}
+
+	.section-heading h2 {
+		font-size: 17px;
+		font-weight: 700;
+		letter-spacing: -0.5px;
+	}
+
+	.section-heading > span {
+		color: var(--color-text-muted);
+		font-size: 10px;
+	}
+
+	.shortcuts {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 10px;
+	}
+
+	.shortcut {
+		display: flex;
+		align-items: center;
+		flex-direction: column;
+		padding: 12px 3px 11px;
+		border: 1px solid var(--color-border);
+		border-radius: 17px;
+		background: var(--color-bg);
+		text-align: center;
+	}
+
+	.shortcut-visual {
+		display: grid;
+		place-items: center;
+		width: 53px;
+		height: 39px;
+		margin-bottom: 5px;
+		color: var(--color-deep-teal);
+	}
+
+	.shortcut strong {
+		font-size: 13px;
+		font-weight: 650;
+	}
+
+	.shortcut-description {
+		margin-top: 2px;
+		color: var(--color-text-muted);
+		font-size: 10px;
+	}
+
+	.trust-note {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin: 22px 0;
+	}
+
+	.trust-icon {
+		display: grid;
+		flex-shrink: 0;
+		place-items: center;
+		width: 42px;
+		height: 46px;
+		color: var(--color-deep-teal);
+	}
+
+	.trust-note h2 {
+		font-size: 13px;
+		font-weight: 650;
+	}
+
+	.trust-note p {
+		margin-top: 3px;
+		color: var(--color-text-muted);
+		font-size: 11px;
+		line-height: 1.6;
+	}
+
+	.driver-card {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
+		padding: 16px 18px;
+		border: 1px solid color-mix(in srgb, var(--color-primary-teal) 16%, white);
+		border-radius: 17px;
+		background: var(--color-light-teal);
+	}
+
+	.driver-eyebrow {
+		color: var(--color-deep-teal);
+		font-size: 9px;
+		font-weight: 650;
+		letter-spacing: 1px;
+		text-transform: uppercase;
+	}
+
+	.driver-card h2 {
+		margin-top: 3px;
+		font-size: 15px;
+		font-weight: 700;
+		letter-spacing: -0.3px;
+	}
+
+	.driver-link {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		margin-top: 7px;
+		color: var(--color-deep-teal);
+		font-size: 11px;
+		font-weight: 650;
+	}
+
+	.driver-art {
+		display: grid;
+		flex-shrink: 0;
+		place-items: center;
+		width: 64px;
+		height: 64px;
+		border: 1px solid color-mix(in srgb, var(--color-primary-teal) 15%, transparent);
+		border-radius: 50%;
+		background: color-mix(in srgb, var(--color-primary-teal) 9%, transparent);
+		color: var(--color-deep-teal);
+		transform: rotate(-18deg);
+	}
+
+	.home-navigation {
+		position: sticky;
+		bottom: 0;
+		z-index: 30;
+		margin-top: auto;
+		overflow: hidden;
+		background: white;
+	}
+
+	@media (hover: hover) {
+		.ride-action:hover {
+			background: color-mix(in srgb, var(--color-deep-teal) 90%, var(--color-text-primary));
+		}
+		.shortcut:hover, .account-link:hover {
+			border-color: var(--color-primary-teal);
+			background: var(--color-light-teal);
+		}
+		.driver-card:hover {
+			border-color: var(--color-primary-teal);
+		}
+	}
+
+	@media (prefers-reduced-motion: no-preference) {
+		.ride-action, .shortcut, .driver-card, .account-link {
+			transition: background 160ms, border-color 160ms, transform 160ms;
+		}
+		.ride-action:active, .shortcut:active, .driver-card:active {
+			transform: scale(0.98);
+		}
+	}
+
+	@media (max-width: 359px) {
+		.home-screen {
+			--home-gutter: 16px;
+		}
+		.hero-copy {
+			padding-left: 18px;
+		}
+		h1 {
+			font-size: 31px;
+		}
+		.section-heading > span {
+			display: none;
+		}
+		.ride-action {
+			gap: 10px;
+			padding-inline: 13px;
+		}
+		.ride-action-copy strong {
+			font-size: 15px;
+		}
+		.driver-art {
+			width: 48px;
+			height: 48px;
+		}
+		.driver-card {
+			padding-inline: 14px;
+		}
+		.wide-break {
+			display: none;
+		}
+	}
+
+	@media (min-width: 640px) {
+		.home-header {
+			padding-top: 26px;
+		}
+		.home-navigation {
+			border-radius: 0 0 2.5rem 2.5rem;
+		}
+	}
+</style>
