@@ -12,26 +12,25 @@
 	},
 	"dependencies": {
 		"bcryptjs": "^3.0.2",
-		"better-sqlite3": "^12.4.1",
 		"cors": "^2.8.5",
 		"dotenv": "^17.2.1",
 		"express": "^5.1.0",
 		"jsonwebtoken": "^9.0.2",
 		"nodemailer": "^6.10.1",
+		"pg": "^8.23.1",
 		"zod": "^4.1.12"
 	},
 	"devDependencies": {
-		"@types/better-sqlite3": "^7.6.13",
 		"@types/cors": "^2.8.19",
 		"@types/express": "^5.0.3",
 		"@types/jsonwebtoken": "^9.0.10",
 		"@types/node": "^24.0.0",
 		"@types/nodemailer": "^8.0.1",
+		"@types/pg": "^8.23.1",
 		"tsx": "^4.20.5",
 		"typescript": "^6.0.3"
 	},
 	"allowScripts": {
-		"better-sqlite3@12.11.1": true,
 		"esbuild@0.28.2": true
 	}
 }

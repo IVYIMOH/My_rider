@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { db } from '../db';
+import { db, pool } from '../db';
 import { err } from '../errors';
 import { hashPassword } from '../lib/password';
 import { normalizePhone } from '../lib/phone';
@@ -48,8 +48,8 @@ const createUserSchema = z.object({
 	phone: z.string().min(7).max(30).optional()
 });
 
-function getConfigRow(): PricingConfig {
-	const row = db.prepare('SELECT * FROM pricing WHERE id = 1').get() as Record<string, number | string>;
+async function getConfigRow(): Promise<PricingConfig> {
+	const row = (await db.prepare('SELECT * FROM pricing WHERE id = 1').get()) as Record<string, number | string>;
 	return {
 		currency: row.currency as string,
 		baseFare: row.base_fare as number,
@@ -61,7 +61,7 @@ function getConfigRow(): PricingConfig {
 	};
 }
 
-function getVehicleClasses() {
+async function getVehicleClasses() {
 	return db.prepare('SELECT id, name, multiplier, seats FROM vehicle_classes ORDER BY multiplier').all();
 }
 
@@ -69,53 +69,63 @@ function capitalize(value: string): string {
 	return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-adminRouter.get('/pricing', (_req, res) => {
-	res.json({ config: getConfigRow(), vehicleClasses: getVehicleClasses() });
+adminRouter.get('/pricing', async (_req, res) => {
+	res.json({ config: await getConfigRow(), vehicleClasses: await getVehicleClasses() });
 });
 
-adminRouter.put('/pricing', (req, res) => {
+adminRouter.put('/pricing', async (req, res) => {
 	const body = pricingSchema.parse(req.body);
 	const { config, vehicleClasses } = body;
 
-	db.prepare(
-		`UPDATE pricing SET currency = ?, base_fare = ?, per_km = ?, per_minute = ?, booking_fee = ?, surge_multiplier = ?, minimum_fare = ? WHERE id = 1`
-	).run(
-		config.currency,
-		config.baseFare,
-		config.perKm,
-		config.perMinute,
-		config.bookingFee,
-		config.surgeMultiplier,
-		config.minimumFare
-	);
-
-	const upsert = db.prepare(
-		`INSERT INTO vehicle_classes (id, name, multiplier, seats) VALUES (?, ?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET name = excluded.name, multiplier = excluded.multiplier, seats = excluded.seats`
-	);
-	const tx = db.transaction((classes: typeof vehicleClasses) => {
-		for (const vc of classes) upsert.run(vc.id, vc.name, vc.multiplier, vc.seats ?? '');
-		const placeholders = classes.map(() => '?').join(',') || 'NULL';
-		db.prepare(
+	const client = await pool.connect();
+	try {
+		await client.query('BEGIN');
+		await client.query(
+			`UPDATE pricing SET currency = $1, base_fare = $2, per_km = $3, per_minute = $4, booking_fee = $5, surge_multiplier = $6, minimum_fare = $7 WHERE id = 1`,
+			[
+				config.currency,
+				config.baseFare,
+				config.perKm,
+				config.perMinute,
+				config.bookingFee,
+				config.surgeMultiplier,
+				config.minimumFare
+			]
+		);
+		for (const vc of vehicleClasses) {
+			await client.query(
+				`INSERT INTO vehicle_classes (id, name, multiplier, seats) VALUES ($1, $2, $3, $4)
+				 ON CONFLICT(id) DO UPDATE SET name = excluded.name, multiplier = excluded.multiplier, seats = excluded.seats`,
+				[vc.id, vc.name, vc.multiplier, vc.seats ?? '']
+			);
+		}
+		const placeholders = vehicleClasses.map((_, i) => `$${i + 1}`).join(',') || 'NULL';
+		await client.query(
 			`DELETE FROM vehicle_classes
 			 WHERE id NOT IN (${placeholders})
 			   AND id NOT IN (SELECT vehicle_class_id FROM drivers)
-			   AND id NOT IN (SELECT vehicle_class_id FROM rides)`
-		).run(...classes.map((vc) => vc.id));
-	});
-	tx(vehicleClasses);
+			   AND id NOT IN (SELECT vehicle_class_id FROM rides)`,
+			vehicleClasses.map((vc) => vc.id)
+		);
+		await client.query('COMMIT');
+	} catch (error) {
+		await client.query('ROLLBACK');
+		throw error;
+	} finally {
+		client.release();
+	}
 
-	res.json({ config: getConfigRow(), vehicleClasses: getVehicleClasses() });
+	res.json({ config: await getConfigRow(), vehicleClasses: await getVehicleClasses() });
 });
 
-adminRouter.get('/drivers', (_req, res) => {
-	const rows = db
+adminRouter.get('/drivers', async (_req, res) => {
+	const rows = (await db
 		.prepare(
 			`SELECT dr.id, u.name, dr.association AS "group", dr.verified, dr.rating, u.phone, u.email
 			 FROM drivers dr JOIN users u ON u.id = dr.user_id
 			 ORDER BY dr.id`
 		)
-		.all() as Array<Record<string, unknown>>;
+		.all()) as Array<Record<string, unknown>>;
 	res.json({
 		drivers: rows.map((r) => ({
 			id: r.id as number,
@@ -129,30 +139,30 @@ adminRouter.get('/drivers', (_req, res) => {
 	});
 });
 
-adminRouter.patch('/drivers/:id', (req, res) => {
+adminRouter.patch('/drivers/:id', async (req, res) => {
 	const body = driverPatchSchema.parse(req.body);
 	const id = Number(req.params.id);
-	const row = getDriverById(id);
+	const row = await getDriverById(id);
 	if (!row) throw err.notFound('Driver not found.');
 
 	if (body.verified) {
-		db.prepare('UPDATE drivers SET verified = 1 WHERE id = ?').run(id);
+		await db.prepare('UPDATE drivers SET verified = 1 WHERE id = ?').run(id);
 	} else {
 		// Not a bare `UPDATE drivers SET verified = 0`: revoking from here has to
 		// take the driver offline and bank their online time exactly like the
 		// self-service path in routes/drivers.ts, or an admin can leave a row at
 		// online = 1 while verified = 0. See revokeVerification() for why both
 		// halves matter.
-		revokeVerification(row, 'revoked by an admin');
+		await revokeVerification(row, 'revoked by an admin');
 	}
 
 	res.json({ id, verified: body.verified });
 });
 
-adminRouter.get('/users', (_req, res) => {
-	const rows = db
+adminRouter.get('/users', async (_req, res) => {
+	const rows = (await db
 		.prepare('SELECT id, name, role, status, email_verified, phone_verified, phone, created_at FROM users ORDER BY id')
-		.all() as Array<Record<string, unknown>>;
+		.all()) as Array<Record<string, unknown>>;
 	res.json({
 		users: rows.map((r) => ({
 			id: r.id as number,
@@ -167,18 +177,18 @@ adminRouter.get('/users', (_req, res) => {
 	});
 });
 
-adminRouter.post('/users', (req, res) => {
+adminRouter.post('/users', async (req, res) => {
 	const body = createUserSchema.parse(req.body);
 	const email = body.email.toLowerCase();
 
-	if (db.prepare('SELECT id FROM users WHERE email = ?').get(email)) {
+	if (await db.prepare('SELECT id FROM users WHERE email = ?').get(email)) {
 		throw err.conflict('An account with this email already exists.', 'EMAIL_TAKEN');
 	}
 
 	let phone: string | null = body.phone ?? null;
 	if (phone) {
 		phone = normalizePhone(phone).e164;
-		if (db.prepare('SELECT id FROM users WHERE phone = ?').get(phone)) {
+		if (await db.prepare('SELECT id FROM users WHERE phone = ?').get(phone)) {
 			throw err.conflict('An account with this phone number already exists.', 'PHONE_TAKEN');
 		}
 	}
@@ -186,7 +196,7 @@ adminRouter.post('/users', (req, res) => {
 	// Created by an admin, so the account is trusted: active and email-verified
 	// up front. Drivers still need a drivers row (onboarding) and verified = 1
 	// before they can accept rides.
-	const info = db
+	const info = await db
 		.prepare(
 			`INSERT INTO users (name, email, phone, password_hash, role, status, email_verified, phone_verified)
 			 VALUES (?, ?, ?, ?, ?, 'active', 1, 0)`
@@ -201,11 +211,11 @@ adminRouter.post('/users', (req, res) => {
 	});
 });
 
-adminRouter.patch('/users/:id', (req, res) => {
+adminRouter.patch('/users/:id', async (req, res) => {
 	const body = userPatchSchema.parse(req.body);
 	const id = Number(req.params.id);
-	const row = db.prepare('SELECT id, role FROM users WHERE id = ?').get(id);
+	const row = await db.prepare('SELECT id, role FROM users WHERE id = ?').get(id);
 	if (!row) throw err.notFound('User not found.');
-	db.prepare('UPDATE users SET status = ? WHERE id = ?').run(body.status, id);
+	await db.prepare('UPDATE users SET status = ? WHERE id = ?').run(body.status, id);
 	res.json({ id, status: capitalize(body.status) });
 });

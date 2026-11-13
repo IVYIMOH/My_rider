@@ -29,12 +29,12 @@ const onboardingSchema = z.object({
 	vehicleClassId: z.string().min(1)
 });
 
-function buildStats(userId: number, row: DriverRow) {
-	const earnings = db
+async function buildStats(userId: number, row: DriverRow) {
+	const earnings = (await db
 		.prepare(
-			"SELECT COALESCE(SUM(estimated_fare), 0) AS total FROM rides WHERE driver_id = ? AND status = 'completed' AND date(created_at) = date('now')"
+			"SELECT COALESCE(SUM(estimated_fare), 0)::float8 AS total FROM rides WHERE driver_id = ? AND status = 'completed' AND created_at::date = CURRENT_DATE"
 		)
-		.get(userId) as { total: number };
+		.get(userId)) as { total: number };
 	return {
 		todayEarnings: Math.round(earnings.total * 100) / 100,
 		onlineSeconds: computeOnlineSeconds(row),
@@ -42,11 +42,11 @@ function buildStats(userId: number, row: DriverRow) {
 	};
 }
 
-function respondProfile(req: Request, res: Response) {
-	const user = db.prepare('SELECT id, name, email, phone, role, status FROM users WHERE id = ?').get(req.user!.id) as
+async function respondProfile(req: Request, res: Response) {
+	const user = (await db.prepare('SELECT id, name, email, phone, role, status FROM users WHERE id = ?').get(req.user!.id)) as
 		| { id: number; name: string; email: string; phone: string | null }
 		| undefined;
-	const row = getDriverRow(req.user!.id);
+	const row = await getDriverRow(req.user!.id);
 	if (!user || !row) throw err.notFound('Driver profile not found. Complete onboarding first.');
 	res.json({
 		profile: {
@@ -60,20 +60,20 @@ function respondProfile(req: Request, res: Response) {
 			rating: row.rating,
 			online: row.online === 1
 		},
-		stats: buildStats(user.id, row)
+		stats: await buildStats(user.id, row)
 	});
 }
 
 // Tourist-facing: list available (online + verified) drivers so a rider can
 // pick one when saving or confirming a booking draft.
-driversRouter.get('/available', requireAuth, (_req, res) => {
-	const rows = db
+driversRouter.get('/available', requireAuth, async (_req, res) => {
+	const rows = (await db
 		.prepare(
 			`SELECT d.id, u.id AS user_id, u.name, u.phone, d.association, d.vehicle_class_id, d.rating
 			 FROM drivers d JOIN users u ON u.id = d.user_id
 			 WHERE d.verified = 1 AND d.online = 1`
 		)
-		.all() as Array<Record<string, unknown>>;
+		.all()) as Array<Record<string, unknown>>;
 	res.json({
 		drivers: rows.map((r) => ({
 			id: r.id as number,
@@ -92,9 +92,9 @@ driversRouter.use('/me', requireAuth, requireRole('driver'));
 
 driversRouter.get('/me', (req, res) => respondProfile(req, res));
 
-driversRouter.patch('/me', (req, res) => {
+driversRouter.patch('/me', async (req, res) => {
 	const body = patchSchema.parse(req.body);
-	const row = getDriverRow(req.user!.id);
+	const row = await getDriverRow(req.user!.id);
 	if (!row) throw err.notFound('Driver profile not found. Complete onboarding first.');
 
 	// Apply the reviewable fields first: if either changes, verification is
@@ -105,26 +105,26 @@ driversRouter.patch('/me', (req, res) => {
 		body.vehicleClassId !== undefined && body.vehicleClassId !== (row.vehicle_class_id ?? '');
 
 	if (classChanged) {
-		const vc = db.prepare('SELECT id FROM vehicle_classes WHERE id = ?').get(body.vehicleClassId);
+		const vc = await db.prepare('SELECT id FROM vehicle_classes WHERE id = ?').get(body.vehicleClassId);
 		if (!vc) throw err.notFound('Unknown vehicle class.');
 	}
 	if (associationChanged) {
-		db.prepare('UPDATE drivers SET association = ? WHERE id = ?').run(body.association!.trim(), row.id);
+		await db.prepare('UPDATE drivers SET association = ? WHERE id = ?').run(body.association!.trim(), row.id);
 	}
 	if (classChanged) {
-		db.prepare('UPDATE drivers SET vehicle_class_id = ? WHERE id = ?').run(body.vehicleClassId, row.id);
+		await db.prepare('UPDATE drivers SET vehicle_class_id = ? WHERE id = ?').run(body.vehicleClassId, row.id);
 	}
 	if (associationChanged || classChanged) {
 		// Approval is for a specific driver on a specific vehicle class under a
 		// specific association, so changing either invalidates it. Without this a
 		// driver approved as "Kampala Tourist Taxis / car" could quietly switch to
 		// a coach under an unreviewed association and keep the Verified badge.
-		revokeVerification(row, 'association or vehicle class changed after approval');
+		await revokeVerification(row, 'association or vehicle class changed after approval');
 	}
 
 	if (typeof body.online === 'boolean') {
 		// Re-read: the block above may have just revoked verification.
-		const current = getDriverRow(req.user!.id)!;
+		const current = (await getDriverRow(req.user!.id))!;
 		if (body.online) {
 			if (current.verified !== 1) {
 				throw err.forbidden(
@@ -135,22 +135,22 @@ driversRouter.patch('/me', (req, res) => {
 				);
 			}
 			if (current.online !== 1) {
-				db.prepare("UPDATE drivers SET online = 1, online_at = datetime('now') WHERE id = ?").run(current.id);
+				await db.prepare("UPDATE drivers SET online = 1, online_at = now() WHERE id = ?").run(current.id);
 			}
 		} else {
-			goOffline(current);
+			await goOffline(current);
 		}
 	}
 
 	return respondProfile(req, res);
 });
 
-driversRouter.post('/onboarding', requireAuth, (req, res) => {
+driversRouter.post('/onboarding', requireAuth, async (req, res) => {
 	const body = onboardingSchema.parse(req.body);
-	const vc = db.prepare('SELECT id FROM vehicle_classes WHERE id = ?').get(body.vehicleClassId);
+	const vc = await db.prepare('SELECT id FROM vehicle_classes WHERE id = ?').get(body.vehicleClassId);
 	if (!vc) throw err.notFound('Unknown vehicle class.');
 
-	const account = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user!.id) as
+	const account = (await db.prepare('SELECT role FROM users WHERE id = ?').get(req.user!.id)) as
 		| { role: string }
 		| undefined;
 	if (!account) throw err.notFound('Account not found.');
@@ -160,31 +160,33 @@ driversRouter.post('/onboarding', requireAuth, (req, res) => {
 	if (account.role === 'tourist') {
 		// A signed-in tourist applying to drive is promoted here. They are held
 		// at 'pending' until an admin verifies the driver profile.
-		db.prepare("UPDATE users SET name = ?, role = 'driver', status = 'pending' WHERE id = ?").run(
+		await db.prepare("UPDATE users SET name = ?, role = 'driver', status = 'pending' WHERE id = ?").run(
 			body.fullName.trim(),
 			req.user!.id
 		);
 	} else {
-		db.prepare('UPDATE users SET name = ? WHERE id = ?').run(body.fullName.trim(), req.user!.id);
+		await db.prepare('UPDATE users SET name = ? WHERE id = ?').run(body.fullName.trim(), req.user!.id);
 	}
 
-	const existing = getDriverRow(req.user!.id);
+	const existing = await getDriverRow(req.user!.id);
 	if (existing) {
 		// Same reviewable fields as PATCH /me — resubmitting onboarding is
 		// another way to change them, so it revokes approval the same way.
 		const changed =
 			body.association.trim() !== (existing.association ?? '') ||
 			body.vehicleClassId !== (existing.vehicle_class_id ?? '');
-		db.prepare('UPDATE drivers SET association = ?, vehicle_class_id = ? WHERE id = ?').run(
+		await db.prepare('UPDATE drivers SET association = ?, vehicle_class_id = ? WHERE id = ?').run(
 			body.association.trim(),
 			body.vehicleClassId,
 			existing.id
 		);
-		if (changed) revokeVerification(existing, 'onboarding re-submitted with different details');
+		if (changed) await revokeVerification(existing, 'onboarding re-submitted with different details');
 	} else {
-		db.prepare(
-			'INSERT INTO drivers (user_id, association, vehicle_class_id, verified, rating, online) VALUES (?, ?, ?, 0, 0, 0)'
-		).run(req.user!.id, body.association.trim(), body.vehicleClassId);
+		await db
+			.prepare(
+				'INSERT INTO drivers (user_id, association, vehicle_class_id, verified, rating, online) VALUES (?, ?, ?, 0, 0, 0)'
+			)
+			.run(req.user!.id, body.association.trim(), body.vehicleClassId);
 	}
 
 	res.status(201).json({ message: 'Onboarding submitted. Your profile is pending admin verification.' });

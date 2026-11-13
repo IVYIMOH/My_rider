@@ -9,24 +9,24 @@ export interface DriverRow {
 	verified: number;
 	rating: number;
 	online: number;
-	online_at: string | null;
+	online_at: string | Date | null;
 	online_seconds: number;
 }
 
-export function getDriverByUserId(userId: number): DriverRow | undefined {
-	return db.prepare('SELECT * FROM drivers WHERE user_id = ?').get(userId) as DriverRow | undefined;
+export async function getDriverByUserId(userId: number): Promise<DriverRow | undefined> {
+	return (await db.prepare('SELECT * FROM drivers WHERE user_id = ?').get(userId)) as DriverRow | undefined;
 }
 
 /** By drivers.id — what the admin panel addresses drivers by. */
-export function getDriverById(id: number): DriverRow | undefined {
-	return db.prepare('SELECT * FROM drivers WHERE id = ?').get(id) as DriverRow | undefined;
+export async function getDriverById(id: number): Promise<DriverRow | undefined> {
+	return (await db.prepare('SELECT * FROM drivers WHERE id = ?').get(id)) as DriverRow | undefined;
 }
 
 /** Banked online time plus the stretch currently in progress, if any. */
 export function computeOnlineSeconds(row: DriverRow): number {
 	let seconds = row.online_seconds;
 	if (row.online && row.online_at) {
-		const started = new Date(row.online_at.replace(' ', 'T') + 'Z').getTime();
+		const started = new Date(row.online_at).getTime();
 		seconds += Math.floor((Date.now() - started) / 1000);
 	}
 	return seconds;
@@ -36,10 +36,10 @@ export function computeOnlineSeconds(row: DriverRow): number {
  * Takes a driver offline, banking the time they were online. Safe to call when
  * they are already offline.
  */
-export function goOffline(row: DriverRow): void {
+export async function goOffline(row: DriverRow): Promise<void> {
 	if (row.online !== 1) return;
 	const delta = computeOnlineSeconds(row) - row.online_seconds;
-	db.prepare(
+	await db.prepare(
 		'UPDATE drivers SET online = 0, online_at = NULL, online_seconds = online_seconds + ? WHERE id = ?'
 	).run(delta, row.id);
 }
@@ -62,9 +62,9 @@ export function goOffline(row: DriverRow): void {
  * already left inconsistent by an earlier build is repaired on the way through
  * instead of being carried forward.
  */
-export function revokeVerification(row: DriverRow, reason: string): void {
-	goOffline(row);
+export async function revokeVerification(row: DriverRow, reason: string): Promise<void> {
+	await goOffline(row);
 	if (row.verified !== 1) return;
-	db.prepare('UPDATE drivers SET verified = 0 WHERE id = ?').run(row.id);
+	await db.prepare('UPDATE drivers SET verified = 0 WHERE id = ?').run(row.id);
 	console.log(`[drivers] driver #${row.id} verification revoked (${reason}) — needs re-review`);
 }

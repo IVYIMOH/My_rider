@@ -13,9 +13,11 @@
  * where it would land in shell history and the process list.
  */
 import { randomBytes } from 'node:crypto';
-import { db } from '../src/db';
+import { db, initDb } from '../src/db';
 import { hashPassword } from '../src/lib/password';
 import { normalizePhone } from '../src/lib/phone';
+
+await initDb();
 
 function arg(flag: string): string | undefined {
 	const i = process.argv.indexOf(flag);
@@ -48,10 +50,10 @@ if (rawPhone) {
 	}
 }
 
-if (db.prepare('SELECT id FROM users WHERE email = ?').get(email)) {
+if (await db.prepare('SELECT id FROM users WHERE email = ?').get(email)) {
 	fail(`An account already exists for ${email}.`);
 }
-if (phone && db.prepare('SELECT id FROM users WHERE phone = ?').get(phone)) {
+if (phone && (await db.prepare('SELECT id FROM users WHERE phone = ?').get(phone))) {
 	fail(`An account already exists for ${phone}.`);
 }
 
@@ -60,7 +62,7 @@ if (envPassword && envPassword.length < 12) fail('ADMIN_PASSWORD must be at leas
 const generated = !envPassword;
 const password = envPassword ?? randomBytes(18).toString('base64url');
 
-const info = db
+const info = await db
 	.prepare(
 		`INSERT INTO users (name, email, phone, password_hash, role, status, email_verified, phone_verified)
 		 VALUES (?, ?, ?, ?, 'admin', 'active', 1, 0)`

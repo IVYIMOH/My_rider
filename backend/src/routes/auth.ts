@@ -72,7 +72,7 @@ function toPublicUser(row: {
 }
 
 async function sendVerification(user: { id: number; email: string }) {
-	const token = issueVerificationToken(user.id);
+	const token = await issueVerificationToken(user.id);
 	const verifyUrl = `${config.publicBaseUrl}/verify-email?token=${token}`;
 	await sendEmail(
 		user.email,
@@ -86,7 +86,7 @@ authRouter.post('/register', async (req, res) => {
 	const body = registerSchema.parse(req.body);
 	const email = body.email.toLowerCase();
 
-	const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+	const exists = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
 	if (exists) throw err.conflict('An account with this email already exists.', 'EMAIL_TAKEN');
 
 	let phone: string | null = body.phone ?? null;
@@ -98,7 +98,7 @@ authRouter.post('/register', async (req, res) => {
 		}
 	}
 	// Role is hard-coded, not taken from the request. See registerSchema above.
-	const info = db
+	const info = await db
 		.prepare(
 			"INSERT INTO users (name, email, phone, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, 'tourist', 'active', 0)"
 		)
@@ -135,13 +135,13 @@ interface LoginRow {
 	password_hash: string;
 }
 
-authRouter.post('/login', (req, res) => {
+authRouter.post('/login', async (req, res) => {
 	const body = loginSchema.parse(req.body);
-	const row = db
+	const row = (await db
 		.prepare(
 			'SELECT id, name, email, phone, role, status, email_verified, password_hash, created_at FROM users WHERE email = ?'
 		)
-		.get(body.email.toLowerCase()) as LoginRow | undefined;
+		.get(body.email.toLowerCase())) as LoginRow | undefined;
 
 	if (!row || !verifyPassword(body.password, row.password_hash)) {
 		throw err.unauthorized('Invalid email or password.');
@@ -188,12 +188,12 @@ authRouter.post('/phone-login', async (req, res) => {
 	}
 
 	// A suspended account should not be able to trigger SMS at all.
-	const existing = db.prepare('SELECT status FROM users WHERE phone = ?').get(phone.e164) as
+	const existing = (await db.prepare('SELECT status FROM users WHERE phone = ?').get(phone.e164)) as
 		| { status: PublicUser['status'] }
 		| undefined;
 	if (existing?.status === 'suspended') throw err.forbidden('This account has been suspended.');
 
-	const { code, expiresAt } = issueOtp(phone.e164, body.role ?? 'tourist');
+	const { code, expiresAt } = await issueOtp(phone.e164, body.role ?? 'tourist');
 	await sendSms(
 		phone.e164,
 		`Your SipiRider login code is ${code}. It expires in ${config.otp.ttlMin} minutes. Never share it with anyone.`
@@ -214,12 +214,12 @@ authRouter.post('/phone-login', async (req, res) => {
  * and issues the JWT. The role comes from the stored challenge, not from this
  * request, so a client cannot switch roles between the two steps.
  */
-authRouter.post('/phone-login/verify', (req, res) => {
+authRouter.post('/phone-login/verify', async (req, res) => {
 	const body = phoneVerifySchema.parse(req.body);
 	const phone = normalizePhone(body.phone);
 	assertOtpVerifyAllowed(phone.e164);
 
-	const result = verifyOtp(phone.e164, body.code);
+	const result = await verifyOtp(phone.e164, body.code);
 	if (!result.ok) {
 		switch (result.reason) {
 			case 'NO_CODE':
@@ -242,11 +242,11 @@ authRouter.post('/phone-login/verify', (req, res) => {
 		throw err.badRequest('Request a new code to continue.', 'OTP_NOT_FOUND');
 	}
 
-	const existing = db
+	const existing = (await db
 		.prepare(
 			'SELECT id, name, email, phone, role, status, email_verified, created_at FROM users WHERE phone = ?'
 		)
-		.get(phone.e164) as Parameters<typeof toPublicUser>[0] | undefined;
+		.get(phone.e164)) as Parameters<typeof toPublicUser>[0] | undefined;
 
 	if (existing) {
 		if (existing.status === 'suspended') throw err.forbidden('This account has been suspended.');
@@ -257,7 +257,7 @@ authRouter.post('/phone-login/verify', (req, res) => {
 			throw err.forbidden('Your account is pending approval.', 'ACCOUNT_PENDING');
 		}
 		// The OTP just proved possession of this number.
-		db.prepare('UPDATE users SET phone_verified = 1 WHERE id = ?').run(existing.id);
+		await db.prepare('UPDATE users SET phone_verified = 1 WHERE id = ?').run(existing.id);
 		res.json({ token: signToken({ id: existing.id, role: existing.role }), user: toPublicUser(existing) });
 		return;
 	}
@@ -265,22 +265,22 @@ authRouter.post('/phone-login/verify', (req, res) => {
 	// New account. Drivers land in 'pending' so phone signup cannot bypass the
 	// approval gate that /register applies; riders are active immediately.
 	const status = result.role === 'driver' ? 'pending' : 'active';
-	const info = db
+	const info = await db
 		.prepare(
 			"INSERT INTO users (name, email, phone, password_hash, role, status, email_verified, phone_verified) VALUES ('Rider', NULL, ?, ?, ?, ?, 0, 1)"
 		)
 		.run(phone.e164, hashPassword(randomBytes(24).toString('hex')), result.role, status);
 	const id = Number(info.lastInsertRowid);
-	const created = db
+	const created = (await db
 		.prepare('SELECT id, name, email, phone, role, status, email_verified, created_at FROM users WHERE id = ?')
-		.get(id) as Parameters<typeof toPublicUser>[0];
+		.get(id)) as Parameters<typeof toPublicUser>[0];
 
 	res.status(201).json({ token: signToken({ id, role: created.role }), user: toPublicUser(created) });
 });
 
-authRouter.get('/verify-email', (req, res) => {
+authRouter.get('/verify-email', async (req, res) => {
 	const { token } = tokenSchema.parse(req.query);
-	const userId = verifyEmailToken(token);
+	const userId = await verifyEmailToken(token);
 	if (!userId) throw err.badRequest('This verification link is invalid or has expired.', 'INVALID_TOKEN');
 	res.json({ message: 'Email verified. You can now log in.' });
 });
@@ -292,7 +292,7 @@ authRouter.post('/resend-verification', async (req, res) => {
 		throw err.rateLimited('Too many verification emails. Try again later.');
 	}
 
-	const row = db.prepare('SELECT id, email, email_verified FROM users WHERE email = ?').get(email.toLowerCase()) as
+	const row = (await db.prepare('SELECT id, email, email_verified FROM users WHERE email = ?').get(email.toLowerCase())) as
 		| { id: number; email: string; email_verified: number }
 		| undefined;
 
@@ -316,8 +316,8 @@ authRouter.post('/resend-verification', async (req, res) => {
 	}
 });
 
-authRouter.get('/me', requireAuth, (req, res) => {
-	const row = db
+authRouter.get('/me', requireAuth, async (req, res) => {
+	const row = await db
 		.prepare('SELECT id, name, email, phone, role, status, email_verified, created_at FROM users WHERE id = ?')
 		.get(req.user!.id);
 	res.json({ user: toPublicUser(row as Parameters<typeof toPublicUser>[0]) });

@@ -4,8 +4,8 @@ import type { PricingConfig, VehicleClass } from '../types';
 
 export const pricingRouter = Router();
 
-function getConfigRow() {
-	const row = db.prepare('SELECT * FROM pricing WHERE id = 1').get() as Record<string, number | string>;
+async function getConfigRow() {
+	const row = (await db.prepare('SELECT * FROM pricing WHERE id = 1').get()) as Record<string, number | string>;
 	return {
 		currency: row.currency as string,
 		baseFare: row.base_fare as number,
@@ -17,16 +17,16 @@ function getConfigRow() {
 	} satisfies PricingConfig;
 }
 
-function getVehicleClasses(): VehicleClass[] {
-	return db
+async function getVehicleClasses(): Promise<VehicleClass[]> {
+	return (await db
 		.prepare('SELECT id, name, multiplier, seats FROM vehicle_classes ORDER BY multiplier')
-		.all() as VehicleClass[];
+		.all()) as VehicleClass[];
 }
 
-pricingRouter.get('/pricing', (_req, res) => {
-	res.json({ config: getConfigRow(), vehicleClasses: getVehicleClasses() });
+pricingRouter.get('/pricing', async (_req, res) => {
+	res.json({ config: await getConfigRow(), vehicleClasses: await getVehicleClasses() });
 });
 
-pricingRouter.get('/vehicle-classes', (_req, res) => {
-	res.json({ vehicleClasses: getVehicleClasses() });
+pricingRouter.get('/vehicle-classes', async (_req, res) => {
+	res.json({ vehicleClasses: await getVehicleClasses() });
 });

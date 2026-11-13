@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import BottomNav from '$lib/components/BottomNav.svelte';
-	import MapWrapper from '$lib/components/MapWrapper.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import PhoneLoginForm from '$lib/components/PhoneLoginForm.svelte';
 	import { getPricing, createRide, getRide, cancelRide, startConversation } from '$lib/api';
@@ -10,7 +9,7 @@
 	import type { PricingConfig, Ride, VehicleClass } from '$lib/api';
 
 	// Svelte 5 states to manage user flow step-by-step
-	let flowStep = $state('empty'); // 'empty' | 'select_vehicle' | 'requested'
+	let flowStep = $state('select_vehicle'); // 'empty' | 'select_vehicle' | 'requested'
 	let selectedVehicle = $state('car');
 	let activeTab = $state('home');
 	let requesting = $state(false);
@@ -126,12 +125,6 @@
 		pickup && destination ? Math.max(0.1, haversineKm(pickup, destination)) : 0
 	);
 	const durationMin = $derived(distanceKm ? Math.max(1, Math.round((distanceKm / 40) * 60)) : 0);
-	const routeMarkers = $derived([
-		...(pickup ? [{ ...pickup, label: pickup.name, color: '#16a34a' }] : []),
-		...(destination ? [{ ...destination, label: destination.name, color: '#f97316' }] : [])
-	]);
-	const routePath = $derived(pickup && destination ? [pickup, destination] : null);
-
 	function openPicker(which: 'pickup' | 'destination') {
 		placeSearch = '';
 		searchResults = places;
@@ -298,26 +291,19 @@
 
 <div class="app-frame relative flex flex-col h-full bg-white overflow-hidden">
 
-	<!-- Absolute Floating Map Container Interface Component -->
-	<div class="w-full flex-1 relative min-h-0">
-		<MapWrapper markers={routeMarkers} path={routePath} />
+	<div class="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
+		<button type="button" class="p-1 text-sm font-bold text-text-muted hover:text-text-primary" onclick={() => goto('/')}>
+			←
+		</button>
+		<h2 class="text-body-lg font-semibold text-text-primary">Request a ride</h2>
+	</div>
 
-		<!-- Floating Top Header Card Overlay -->
-		<div class="absolute top-4 inset-x-4 z-20 bg-white/90 backdrop-blur border border-border p-3 rounded-xl shadow-md flex items-center gap-3">
-			<button type="button" class="text-text-muted hover:text-text-primary p-1 text-sm font-bold" onclick={() => goto('/')}>
-				←
-			</button>
-			<div class="flex-1">
-				<h2 class="text-caption font-bold uppercase tracking-wider text-text-muted">Current Target</h2>
-				<p class="text-xs font-semibold text-text-primary truncate">Kampala District Exploration</p>
-			</div>
-			<Icon name="compass" size={18} class="text-primary-teal animate-spin" />
-		</div>
+	<div class="flex-1 overflow-y-auto px-5 pb-5 pt-4">
 
 		<!-- CONDITIONAL SCREEN WORKSPACE LAYERS -->
 		{#if flowStep === 'empty'}
 			<!-- CASE A: Empty Trip State Modal Box Overlay -->
-			<div class="absolute bottom-4 inset-x-4 z-20 bg-white/95 backdrop-blur p-5 rounded-2xl shadow-xl border border-border text-center flex flex-col items-center">
+			<div class="mx-auto mt-4 flex max-w-sm flex-col items-center rounded-2xl border border-border bg-white p-5 text-center">
 				<div class="w-12 h-12 bg-light-teal text-deep-teal rounded-full flex items-center justify-center text-xl mb-2">
 					<Icon name="clock" size={24} class="text-primary-teal" />
 				</div>
@@ -337,9 +323,7 @@
 
 		{:else if flowStep === 'select_vehicle'}
 			<!-- CASE B: Request Configurator Screen Tray Panel -->
-			<div class="absolute inset-x-0 bottom-0 z-20 bg-white rounded-t-3xl shadow-[0_-8px_30px_rgba(0,0,0,0.08)] border-t border-border p-5 flex flex-col max-h-[80%] overflow-y-auto no-scrollbar">
-				<div class="w-12 h-1 bg-slate-200 rounded-full mx-auto mb-4 shrink-0"></div>
-
+			<div class="flex flex-col">
 				<!-- Heading Row -->
 				<div class="flex items-center justify-between mb-3 shrink-0">
 					<h3 class="text-caption font-bold uppercase tracking-wider text-text-muted">Select Vehicle</h3>
@@ -458,7 +442,7 @@
 
 		{:else if flowStep === 'requested'}
 			<!-- CASE C: Live ride request status -->
-			<div class="absolute bottom-4 inset-x-4 z-20 bg-white/95 backdrop-blur p-6 rounded-2xl shadow-xl border border-border text-center flex flex-col items-center">
+			<div class="mx-auto mt-4 flex max-w-sm flex-col items-center rounded-2xl border border-border bg-white p-6 text-center">
 				{#if currentRide?.status === 'completed'}
 					<div class="w-12 h-12 bg-light-teal text-deep-teal rounded-full flex items-center justify-center text-xl mb-2">
 						<Icon name="check" size={24} class="text-primary-teal" />

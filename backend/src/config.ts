@@ -59,7 +59,10 @@ function resolveJwtSecret(): string {
 
 export const config = {
 	port: Number(process.env.PORT ?? 8080),
-	dbPath: process.env.DB_PATH ?? './sipi.db',
+	/** PostgreSQL connection string. Neon: postgresql://...neon.tech/...?... */
+	databaseUrl: process.env.DATABASE_URL ?? '',
+	/** Neon requires TLS. Set DATABASE_SSL=false for a local Postgres without it. */
+	databaseSsl: process.env.DATABASE_SSL !== 'false',
 	/**
 	 * Demo data is opt-in, never inferred. Seeding creates a known-password
 	 * admin plus fake accounts, so it requires an explicit "true" rather than

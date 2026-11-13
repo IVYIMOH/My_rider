@@ -50,14 +50,14 @@ function codeMatches(phoneE164: string, code: string, hash: string): boolean {
  * for profile phone-change codes, so the challenge can only be redeemed by the
  * account that asked for it.
  */
-export function issueOtp(phoneE164: string, role: OtpRole, userId: number | null = null): OtpChallenge {
-	db.prepare('DELETE FROM phone_otps WHERE phone = ? AND used_at IS NULL').run(phoneE164);
+export async function issueOtp(phoneE164: string, role: OtpRole, userId: number | null = null): Promise<OtpChallenge> {
+	await db.prepare('DELETE FROM phone_otps WHERE phone = ? AND used_at IS NULL').run(phoneE164);
 
 	// randomInt is CSPRNG-backed; the upper bound is exclusive.
 	const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
 	const expiresAt = new Date(Date.now() + config.otp.ttlMin * 60_000);
 
-	db.prepare(
+	await db.prepare(
 		'INSERT INTO phone_otps (phone, code_hash, role, user_id, expires_at) VALUES (?, ?, ?, ?, ?)'
 	).run(phoneE164, hashCode(phoneE164, code), role, userId, expiresAt.toISOString());
 
@@ -97,30 +97,30 @@ export function assertOtpVerifyAllowed(phoneE164: string): void {
  * increments the attempt counter and burns the code once the cap is reached,
  * so the 6-digit space cannot be walked.
  */
-export function verifyOtp(phoneE164: string, code: string): OtpResult {
-	const row = db
+export async function verifyOtp(phoneE164: string, code: string): Promise<OtpResult> {
+	const row = (await db
 		.prepare('SELECT * FROM phone_otps WHERE phone = ? AND used_at IS NULL ORDER BY id DESC LIMIT 1')
-		.get(phoneE164) as
+		.get(phoneE164)) as
 		| { id: number; code_hash: string; role: OtpRole; user_id: number | null; attempts: number; expires_at: string }
 		| undefined;
 
 	if (!row) return { ok: false, reason: 'NO_CODE', attemptsLeft: 0 };
 
 	if (new Date(row.expires_at).getTime() < Date.now()) {
-		db.prepare("UPDATE phone_otps SET used_at = datetime('now') WHERE id = ?").run(row.id);
+		await db.prepare("UPDATE phone_otps SET used_at = now() WHERE id = ?").run(row.id);
 		return { ok: false, reason: 'EXPIRED', attemptsLeft: 0 };
 	}
 
 	if (row.attempts >= config.otp.maxAttempts) {
-		db.prepare("UPDATE phone_otps SET used_at = datetime('now') WHERE id = ?").run(row.id);
+		await db.prepare("UPDATE phone_otps SET used_at = now() WHERE id = ?").run(row.id);
 		return { ok: false, reason: 'TOO_MANY_ATTEMPTS', attemptsLeft: 0 };
 	}
 
 	if (!codeMatches(phoneE164, code, row.code_hash)) {
 		const attempts = row.attempts + 1;
 		const exhausted = attempts >= config.otp.maxAttempts;
-		db.prepare(
-			`UPDATE phone_otps SET attempts = ?, used_at = CASE WHEN ? THEN datetime('now') ELSE used_at END
+		await db.prepare(
+			`UPDATE phone_otps SET attempts = ?, used_at = CASE WHEN ? = 1 THEN now() ELSE used_at END
 			 WHERE id = ?`
 		).run(attempts, exhausted ? 1 : 0, row.id);
 		return {
@@ -130,6 +130,6 @@ export function verifyOtp(phoneE164: string, code: string): OtpResult {
 		};
 	}
 
-	db.prepare("UPDATE phone_otps SET used_at = datetime('now') WHERE id = ?").run(row.id);
+	await db.prepare("UPDATE phone_otps SET used_at = now() WHERE id = ?").run(row.id);
 	return { ok: true, role: row.role, userId: row.user_id };
 }

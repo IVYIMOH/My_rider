@@ -12,7 +12,7 @@ declare global {
 	}
 }
 
-export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
+export async function requireAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
 	const header = req.headers.authorization;
 	const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
 	if (!token) throw err.unauthorized();
@@ -24,9 +24,9 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction): v
 		throw err.unauthorized('Invalid or expired session.');
 	}
 
-	const row = db
+	const row = (await db
 		.prepare('SELECT id, role, status, email_verified FROM users WHERE id = ?')
-		.get(payload.sub) as { id: number; role: Role; status: string; email_verified: number } | undefined;
+		.get(payload.sub)) as { id: number; role: Role; status: string; email_verified: number } | undefined;
 	if (!row) throw err.unauthorized();
 
 	if (row.status === 'suspended') throw err.forbidden('This account has been suspended.');
@@ -54,12 +54,12 @@ export function requireRole(...roles: Role[]) {
  *
  * Use as: router.get('/path', requireAuth, requireRole('driver'), requireActiveDriver, handler)
  */
-export function requireActiveDriver(req: Request, _res: Response, next: NextFunction): void {
+export async function requireActiveDriver(req: Request, _res: Response, next: NextFunction): Promise<void> {
 	if (!req.user) throw err.unauthorized();
 
-	const driver = db
+	const driver = (await db
 		.prepare('SELECT verified, online FROM drivers WHERE user_id = ?')
-		.get(req.user.id) as { verified: number; online: number } | undefined;
+		.get(req.user.id)) as { verified: number; online: number } | undefined;
 
 	if (!driver) {
 		throw err.forbidden('Complete driver onboarding first.', 'DRIVER_PROFILE_MISSING');

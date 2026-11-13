@@ -29,13 +29,13 @@ const phoneConfirmSchema = z.object({
 
 profileRouter.use(requireAuth);
 
-profileRouter.get('/', (req, res) => {
-	const user = db
+profileRouter.get('/', async (req, res) => {
+	const user = (await db
 		.prepare(
 			'SELECT id, name, email, phone, role, status, email_verified, phone_verified, created_at FROM users WHERE id = ?'
 		)
-		.get(req.user!.id) as Record<string, unknown>;
-	const driver = db.prepare('SELECT * FROM drivers WHERE user_id = ?').get(req.user!.id) as
+		.get(req.user!.id)) as Record<string, unknown>;
+	const driver = (await db.prepare('SELECT * FROM drivers WHERE user_id = ?').get(req.user!.id)) as
 		| Record<string, unknown>
 		| undefined;
 
@@ -63,10 +63,10 @@ profileRouter.get('/', (req, res) => {
 	});
 });
 
-profileRouter.patch('/', (req, res) => {
+profileRouter.patch('/', async (req, res) => {
 	const body = patchSchema.parse(req.body);
 	if (body.name !== undefined) {
-		db.prepare('UPDATE users SET name = ? WHERE id = ?').run(body.name.trim(), req.user!.id);
+		await db.prepare('UPDATE users SET name = ? WHERE id = ?').run(body.name.trim(), req.user!.id);
 	}
 	res.json({ message: 'Profile updated.' });
 });
@@ -83,7 +83,7 @@ profileRouter.post('/phone', async (req, res) => {
 	const body = phoneChangeSchema.parse(req.body);
 	const phone = normalizePhone(body.phone);
 
-	const current = db.prepare('SELECT phone, role FROM users WHERE id = ?').get(req.user!.id) as {
+	const current = (await db.prepare('SELECT phone, role FROM users WHERE id = ?').get(req.user!.id)) as {
 		phone: string | null;
 		role: Role;
 	};
@@ -91,7 +91,7 @@ profileRouter.post('/phone', async (req, res) => {
 		throw err.badRequest('That is already your phone number.', 'PHONE_UNCHANGED');
 	}
 
-	const taken = db.prepare('SELECT id FROM users WHERE phone = ? AND id != ?').get(phone.e164, req.user!.id);
+	const taken = await db.prepare('SELECT id FROM users WHERE phone = ? AND id != ?').get(phone.e164, req.user!.id);
 	if (taken) throw err.conflict('That phone number is already in use.', 'PHONE_TAKEN');
 
 	assertOtpSendAllowed(phone.e164, req.ip ?? 'unknown');
@@ -113,7 +113,7 @@ profileRouter.post('/phone', async (req, res) => {
 	// Bound to this account: only the user who asked can redeem it, and it is
 	// rejected by the sign-in verifier.
 	const otpRole = current.role === 'driver' ? 'driver' : 'tourist';
-	const { code, expiresAt } = issueOtp(phone.e164, otpRole, req.user!.id);
+	const { code, expiresAt } = await issueOtp(phone.e164, otpRole, req.user!.id);
 	await sendSms(
 		phone.e164,
 		`Your SipiRider verification code is ${code}. It expires in ${config.otp.ttlMin} minutes. Never share it with anyone.`
@@ -129,12 +129,12 @@ profileRouter.post('/phone', async (req, res) => {
 });
 
 /** Step 2: confirm the code, then save the number as verified. */
-profileRouter.post('/phone/verify', (req, res) => {
+profileRouter.post('/phone/verify', async (req, res) => {
 	const body = phoneConfirmSchema.parse(req.body);
 	const phone = normalizePhone(body.phone);
 	assertOtpVerifyAllowed(phone.e164);
 
-	const result = verifyOtp(phone.e164, body.code);
+	const result = await verifyOtp(phone.e164, body.code);
 	if (!result.ok) {
 		switch (result.reason) {
 			case 'NO_CODE':
@@ -158,9 +158,9 @@ profileRouter.post('/phone/verify', (req, res) => {
 	}
 
 	// Re-check: the number may have been claimed while the code was in flight.
-	const taken = db.prepare('SELECT id FROM users WHERE phone = ? AND id != ?').get(phone.e164, req.user!.id);
+	const taken = await db.prepare('SELECT id FROM users WHERE phone = ? AND id != ?').get(phone.e164, req.user!.id);
 	if (taken) throw err.conflict('That phone number is already in use.', 'PHONE_TAKEN');
 
-	db.prepare('UPDATE users SET phone = ?, phone_verified = 1 WHERE id = ?').run(phone.e164, req.user!.id);
+	await db.prepare('UPDATE users SET phone = ?, phone_verified = 1 WHERE id = ?').run(phone.e164, req.user!.id);
 	res.json({ message: 'Phone number updated.', phone: phone.e164, phoneVerified: true });
 });

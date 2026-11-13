@@ -18,6 +18,7 @@
 
 	<div class="relative flex-1 min-h-0">
 		<MapWrapper
+			class="absolute inset-0"
 			center={district.center}
 			zoom={district.zoom}
 			markers={[{ lat: district.center.lat, lng: district.center.lng, label: 'Kapchorwa' }]}
