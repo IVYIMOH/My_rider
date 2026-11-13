@@ -26,9 +26,9 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    HOME["/  — role picker<br/>Tourist vs Driver"]
-    HOME -->|A Tourist| GS["/get-started — booking flow"]
-    HOME -->|A Driver| OND["/onboarding/driver — driver signup"]
+    HOME["/ — rider homepage"]
+    HOME -->|Find a ride| GS["/get-started — booking flow"]
+    HOME -->|Drive with SipiRider| OND["/onboarding/driver — driver signup"]
 
     subgraph "Rider tabs (BottomNav)"
         GS
@@ -49,7 +49,7 @@ flowchart TD
 
 | Route | File | Purpose |
 |---|---|---|
-| `/` | `src/routes/+page.svelte` | Splash / role picker (Tourist → `/get-started`, Driver → `/onboarding/driver`) |
+| `/` | `src/routes/+page.svelte` | Rider homepage with a booking entry point, Ride / Explore / My trips shortcuts, trust information, and driver signup |
 | `/get-started` | `src/routes/get-started/+page.svelte` | **Main booking flow** (see §3) |
 | `/bookings` | `src/routes/bookings/+page.svelte` | Ride history (phone-gated) |
 | `/map` | `src/routes/map/+page.svelte` | Static map centered on Kapchorwa District (Sipi Falls) |
@@ -261,6 +261,7 @@ Shows the driver identity card (name, association, verified badge), a stats grid
 
 - **Tailwind v4** via `@tailwindcss/vite`. Design tokens live in `src/app.css` `@theme`: primary/deep/light teal, `--color-bg`, success, text colors, borders, `--spacing-app: 412px`, font scale, and Inter.
 - Custom utilities (`@utility`): `app-frame` (mobile frame, max-width 412px, centered phone on desktop), `field-label`, `field-input`, `btn-primary`, `card`, `chip`, `chip-active`, `no-scrollbar`.
+- The homepage uses the existing teal / mint / slate tokens, a decorative `RideScene.svelte` illustration, and a sticky bottom navigation. The shared `BottomNav` uses outline icons, accessible current-page links, and safe-area padding; Home returns to `/`.
 - `tailwind.config.js` is a v3-style config kept in sync with the `@theme` tokens in `app.css`; the `@theme` block is the effective source under Tailwind v4.
 
 ---
