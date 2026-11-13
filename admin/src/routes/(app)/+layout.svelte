@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { redirect } from '@sveltejs/kit';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -7,8 +6,6 @@
 	import { session, isAuthenticated, restoreSession, logout } from '$lib/auth';
 
 	let { children } = $props();
-
-	if (!isAuthenticated()) redirect(307, '/login');
 
 	onMount(async () => {
 		await restoreSession();
