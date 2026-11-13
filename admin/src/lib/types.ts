@@ -18,7 +18,7 @@ export interface VehicleClass {
 export interface Driver {
 	id: number;
 	name: string;
-	group: string;
+	group: string | null;
 	verified: boolean;
 	rating: number;
 	phone?: string;
@@ -43,7 +43,7 @@ export interface AuthUser {
 	id: number;
 	name: string;
 	email: string;
-	role: 'Admin';
+	role: 'admin';
 	status: string;
 	emailVerified: boolean;
 	createdAt: string;

@@ -64,7 +64,31 @@ function respondProfile(req: Request, res: Response) {
 	});
 }
 
-driversRouter.use(requireAuth, requireRole('driver'));
+// Tourist-facing: list available (online + verified) drivers so a rider can
+// pick one when saving or confirming a booking draft.
+driversRouter.get('/available', requireAuth, (_req, res) => {
+	const rows = db
+		.prepare(
+			`SELECT d.id, u.id AS user_id, u.name, u.phone, d.association, d.vehicle_class_id, d.rating
+			 FROM drivers d JOIN users u ON u.id = d.user_id
+			 WHERE d.verified = 1 AND d.online = 1`
+		)
+		.all() as Array<Record<string, unknown>>;
+	res.json({
+		drivers: rows.map((r) => ({
+			id: r.id as number,
+			userId: r.user_id as number,
+			name: r.name as string,
+			phone: (r.phone as string | null) ?? null,
+			association: r.association as string | null,
+			vehicleClassId: r.vehicle_class_id as string | null,
+			rating: r.rating as number,
+			location: null
+		}))
+	});
+});
+
+driversRouter.use('/me', requireAuth, requireRole('driver'));
 
 driversRouter.get('/me', (req, res) => respondProfile(req, res));
 
@@ -121,14 +145,28 @@ driversRouter.patch('/me', (req, res) => {
 	return respondProfile(req, res);
 });
 
-driversRouter.post('/onboarding', (req, res) => {
+driversRouter.post('/onboarding', requireAuth, (req, res) => {
 	const body = onboardingSchema.parse(req.body);
 	const vc = db.prepare('SELECT id FROM vehicle_classes WHERE id = ?').get(body.vehicleClassId);
 	if (!vc) throw err.notFound('Unknown vehicle class.');
 
+	const account = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user!.id) as
+		| { role: string }
+		| undefined;
+	if (!account) throw err.notFound('Account not found.');
+
 	// Phone is proven by OTP at sign-in; onboarding must not overwrite the
 	// normalized E.164 value with whatever was retyped here.
-	db.prepare('UPDATE users SET name = ? WHERE id = ?').run(body.fullName.trim(), req.user!.id);
+	if (account.role === 'tourist') {
+		// A signed-in tourist applying to drive is promoted here. They are held
+		// at 'pending' until an admin verifies the driver profile.
+		db.prepare("UPDATE users SET name = ?, role = 'driver', status = 'pending' WHERE id = ?").run(
+			body.fullName.trim(),
+			req.user!.id
+		);
+	} else {
+		db.prepare('UPDATE users SET name = ? WHERE id = ?').run(body.fullName.trim(), req.user!.id);
+	}
 
 	const existing = getDriverRow(req.user!.id);
 	if (existing) {

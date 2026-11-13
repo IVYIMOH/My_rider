@@ -57,6 +57,10 @@ export interface Ride {
 	vehicleClassId: string;
 	pickup: string;
 	destination: string;
+	pickupLat: number | null;
+	pickupLng: number | null;
+	destLat: number | null;
+	destLng: number | null;
 	distanceKm: number;
 	durationMin: number;
 	estimatedFare: number;

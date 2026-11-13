@@ -35,6 +35,10 @@ export interface Ride {
 	vehicleClassId: string;
 	pickup: string;
 	destination: string;
+	pickupLat: number | null;
+	pickupLng: number | null;
+	destLat: number | null;
+	destLng: number | null;
 	distanceKm: number;
 	durationMin: number;
 	estimatedFare: number;
@@ -42,6 +46,17 @@ export interface Ride {
 	createdAt: string;
 	updatedAt: string;
 	driver: RideDriver | null;
+}
+
+export interface AvailableDriver {
+	id: number;
+	userId: number;
+	name: string;
+	phone: string | null;
+	association: string | null;
+	vehicleClassId: string | null;
+	rating: number;
+	location: { lat: number; lng: number; updatedAt: string | null } | null;
 }
 
 export interface DriverMe {
@@ -90,6 +105,11 @@ export async function createRide(input: {
 	vehicleClassId: string;
 	pickup: string;
 	destination: string;
+	pickupLat?: number;
+	pickupLng?: number;
+	destLat?: number;
+	destLng?: number;
+	driverId?: number;
 	distanceKm: number;
 	durationMin: number;
 }): Promise<Ride> {
@@ -106,6 +126,12 @@ export async function getRides(): Promise<Ride[]> {
 
 export async function getAvailableRides(): Promise<Ride[]> {
 	return http<{ rides: Ride[] }>('/api/rides/available', { token: requireToken() }).then((r) => r.rides);
+}
+
+export async function getAvailableDrivers(): Promise<AvailableDriver[]> {
+	return http<{ drivers: AvailableDriver[] }>('/api/drivers/available', { token: requireToken() }).then(
+		(r) => r.drivers
+	);
 }
 
 export async function getRide(id: number): Promise<Ride> {
@@ -147,8 +173,22 @@ export async function getConversations(): Promise<Conversation[]> {
 }
 
 export async function getConversationMessages(id: number): Promise<Message[]> {
-	return http<{ messages: Message[] }>(`/api/messages/${id}`, { token: requireToken() }).then(
-		(r) => r.messages
+	return http<{
+		messages: Array<{
+			id: number;
+			sender_id: number;
+			sender_name: string;
+			body: string;
+			created_at: string;
+		}>;
+	}>(`/api/messages/${id}`, { token: requireToken() }).then((r) =>
+		r.messages.map((m) => ({
+			id: m.id,
+			senderId: m.sender_id,
+			senderName: m.sender_name,
+			body: m.body,
+			createdAt: m.created_at
+		}))
 	);
 }
 

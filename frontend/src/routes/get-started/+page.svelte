@@ -27,19 +27,154 @@
 	let pricingError = $state<string | null>(null);
 	let pricingErrorCode = $state('');
 
-	// Sheraton Kampala → Entebbe Airport reference route
-	const routeKm = 41;
-	const routeMin = 62;
+	// Local place picker. Coordinates are stored per place so the rider app
+	// never needs the map key to calculate a route or submit a booking.
+	interface Place {
+		name: string;
+		lat: number;
+		lng: number;
+	}
 
-	const locations = [
-		{ type: 'pickup', name: 'Sheraton Kampala Hotel', dot: '🟢' },
-		{ type: 'destination', name: 'Entebbe Airport Arrivals', dot: '🟠' }
+	const places: Place[] = [
+		{ name: 'Sheraton Kampala Hotel', lat: 0.3476, lng: 32.5825 },
+		{ name: 'Acacia Mall, Kololo', lat: 0.3345, lng: 32.5976 },
+		{ name: 'Garden City Mall', lat: 0.328, lng: 32.5865 },
+		{ name: 'Uganda National Museum', lat: 0.3356, lng: 32.5828 },
+		{ name: 'Makerere University', lat: 0.3339, lng: 32.57 },
+		{ name: 'Nakasero Market', lat: 0.318, lng: 32.573 },
+		{ name: 'Kampala Railway Station', lat: 0.3212, lng: 32.5773 },
+		{ name: 'Gaddafi National Mosque', lat: 0.3178, lng: 32.5816 },
+		{ name: 'Kasubi Tombs', lat: 0.3345, lng: 32.5544 },
+		{ name: 'Ntinda Shopping Centre', lat: 0.364, lng: 32.611 },
+		{ name: 'Kira Road Police Station', lat: 0.355, lng: 32.599 },
+		{ name: 'Munyonyo Speke Resort', lat: 0.229, lng: 32.626 },
+		{ name: 'Ggaba Beach', lat: -0.012, lng: 32.618 },
+		{ name: 'Kajjansi Airfield', lat: 0.198, lng: 32.535 },
+		{ name: 'Entebbe Town', lat: 0.0512, lng: 32.4637 },
+		{ name: 'Entebbe Airport Arrivals', lat: 0.0424, lng: 32.4435 },
+		{ name: 'Entebbe Airport Departures', lat: 0.042, lng: 32.443 },
+		{ name: 'Mukono Town', lat: 0.354, lng: 32.755 }
 	];
+
+	let pickup = $state<Place | null>(null);
+	let destination = $state<Place | null>(null);
+	let pickerFor = $state<'pickup' | 'destination' | null>(null);
+	let placeSearch = $state('');
+	let searchResults = $state<Place[]>(places);
+	let searching = $state(false);
+	let searchError = $state<string | null>(null);
+
+	// Search places worldwide via OpenStreetMap Nominatim (no API key needed).
+	$effect(() => {
+		if (!pickerFor) return;
+		const query = placeSearch.trim();
+		if (query.length < 2) {
+			searchResults = places;
+			searching = false;
+			searchError = null;
+			return;
+		}
+		let cancelled = false;
+		searching = true;
+		searchError = null;
+		const timer = setTimeout(async () => {
+			try {
+				const res = await fetch(
+					`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&q=${encodeURIComponent(query)}`,
+					{ headers: { Accept: 'application/json' } }
+				);
+				if (!res.ok) throw new Error('Search failed');
+				const data = (await res.json()) as Array<{
+					display_name: string;
+					lat: string;
+					lon: string;
+				}>;
+				if (!cancelled) {
+					searchResults = data.map((item) => ({
+						name: item.display_name,
+						lat: Number(item.lat),
+						lng: Number(item.lon)
+					}));
+				}
+			} catch {
+				if (!cancelled) {
+					searchError = 'Could not search places. Check your connection.';
+					searchResults = [];
+				}
+			} finally {
+				if (!cancelled) searching = false;
+			}
+		}, 450);
+		return () => {
+			cancelled = true;
+			clearTimeout(timer);
+		};
+	});
+
+	function haversineKm(a: Place, b: Place): number {
+		const R = 6371;
+		const toRad = (d: number) => (d * Math.PI) / 180;
+		const dLat = toRad(b.lat - a.lat);
+		const dLng = toRad(b.lng - a.lng);
+		const h =
+			Math.sin(dLat / 2) ** 2 +
+			Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+		return 2 * R * Math.asin(Math.sqrt(h));
+	}
+
+	const distanceKm = $derived(
+		pickup && destination ? Math.max(0.1, haversineKm(pickup, destination)) : 0
+	);
+	const durationMin = $derived(distanceKm ? Math.max(1, Math.round((distanceKm / 40) * 60)) : 0);
+	const routeMarkers = $derived([
+		...(pickup ? [{ ...pickup, label: pickup.name, color: '#16a34a' }] : []),
+		...(destination ? [{ ...destination, label: destination.name, color: '#f97316' }] : [])
+	]);
+	const routePath = $derived(pickup && destination ? [pickup, destination] : null);
+
+	function openPicker(which: 'pickup' | 'destination') {
+		placeSearch = '';
+		searchResults = places;
+		pickerFor = which;
+	}
+
+	function choosePlace(place: Place) {
+		if (pickerFor === 'pickup') pickup = place;
+		else if (pickerFor === 'destination') destination = place;
+		pickerFor = null;
+	}
+
+	function saveDraft() {
+		if (!pickup || !destination) {
+			requestError = 'Select a source and destination first.';
+			return;
+		}
+		try {
+			const drafts = JSON.parse(localStorage.getItem('sipi_tourist_drafts') || '[]');
+			drafts.push({
+				id: Date.now().toString(),
+				vehicleClassId: selectedVehicle,
+				pickup: pickup.name,
+				destination: destination.name,
+				pickupLat: String(pickup.lat),
+				pickupLng: String(pickup.lng),
+				destLat: String(destination.lat),
+				destLng: String(destination.lng),
+				distanceKm,
+				durationMin,
+				createdAt: new Date().toISOString()
+			});
+			localStorage.setItem('sipi_tourist_drafts', JSON.stringify(drafts));
+		} catch {
+			// ignore storage errors
+		}
+		goto('/bookings');
+	}
 
 	function computeFare(vc: VehicleClass): number {
 		if (!config) return 0;
 		const raw =
-			(config.baseFare + config.perKm * routeKm + config.perMinute * routeMin) *
+			(config.baseFare + config.perKm * distanceKm + config.perMinute * durationMin) *
 			vc.multiplier *
 			config.bookingFee *
 			config.surgeMultiplier;
@@ -83,6 +218,10 @@
 	});
 
 	async function confirmRequest() {
+		if (!pickup || !destination) {
+			requestError = 'Select a source and destination first.';
+			return;
+		}
 		if (!isAuthenticated()) {
 			phoneStep = true;
 			return;
@@ -92,10 +231,14 @@
 		try {
 			const ride = await createRide({
 				vehicleClassId: selectedVehicle,
-				pickup: locations[0].name,
-				destination: locations[1].name,
-				distanceKm: routeKm,
-				durationMin: routeMin
+				pickup: pickup.name,
+				destination: destination.name,
+				pickupLat: pickup.lat,
+				pickupLng: pickup.lng,
+				destLat: destination.lat,
+				destLng: destination.lng,
+				distanceKm,
+				durationMin
 			});
 			currentRideId = ride.id;
 			currentRide = ride;
@@ -157,11 +300,7 @@
 
 	<!-- Absolute Floating Map Container Interface Component -->
 	<div class="w-full flex-1 relative min-h-0">
-		<MapWrapper
-			markers={[
-				{ lat: 0.3476, lng: 32.5825, label: 'Sheraton Kampala' }
-			]}
-		/>
+		<MapWrapper markers={routeMarkers} path={routePath} />
 
 		<!-- Floating Top Header Card Overlay -->
 		<div class="absolute top-4 inset-x-4 z-20 bg-white/90 backdrop-blur border border-border p-3 rounded-xl shadow-md flex items-center gap-3">
@@ -242,17 +381,25 @@
 				{/if}
 
 				<!-- Route Parameter Node Selection Block -->
-				<h3 class="text-caption font-bold uppercase tracking-wider text-text-muted mb-2 shrink-0">Selected Nodes</h3>
+				<h3 class="text-caption font-bold uppercase tracking-wider text-text-muted mb-2 shrink-0">Source &amp; Destination</h3>
 				<div class="border border-border rounded-xl divide-y divide-border text-xs text-text-primary mb-4 bg-slate-50 overflow-hidden shrink-0">
-					{#each locations as loc}
-						<div class="p-3 flex items-center justify-between">
-							<div class="flex items-center gap-2 truncate">
-								<span>{loc.dot}</span>
-								<span class="font-medium truncate">{loc.name}</span>
-							</div>
-							<Icon name="chevron" size={12} class="text-text-muted" />
-						</div>
-					{/each}
+					<button type="button" class="w-full p-3 flex items-center justify-between text-left hover:bg-white" onclick={() => openPicker('pickup')}>
+						<span class="font-medium truncate" class:text-text-muted={!pickup}>
+							{pickup?.name ?? 'Select source'}
+						</span>
+						<Icon name="chevron" size={12} class="text-text-muted" />
+					</button>
+					<button type="button" class="w-full p-3 flex items-center justify-between text-left hover:bg-white" onclick={() => openPicker('destination')}>
+						<span class="font-medium truncate" class:text-text-muted={!destination}>
+							{destination?.name ?? 'Select destination'}
+						</span>
+						<Icon name="chevron" size={12} class="text-text-muted" />
+					</button>
+					{#if pickup && destination}
+						<p class="p-3 text-center text-[11px] text-text-muted">
+							~{distanceKm.toFixed(1)} km · {durationMin} min
+						</p>
+					{/if}
 				</div>
 
 				<!-- Fare Computation Calculation Summary Line Module -->
@@ -262,7 +409,9 @@
 						<p class="text-[10px] text-text-muted/70">Calculated via active Admin config tokens</p>
 					</div>
 					<p class="text-lg font-bold text-text-primary">
-						{pricingError ? '—' : formatMoney(fareFor.get(selectedVehicle) ?? 0)}
+						{pricingError || !pickup || !destination
+							? '—'
+							: formatMoney(fareFor.get(selectedVehicle) ?? 0)}
 					</p>
 				</div>
 
@@ -286,14 +435,24 @@
 					</div>
 				{:else}
 					<!-- Primary Trigger Button Call Action -->
-					<button
-						type="button"
-						class="btn-primary w-full py-3.5 shrink-0"
-						disabled={requesting || pricingLoading || !!pricingError}
-						onclick={confirmRequest}
-					>
-						{requesting ? 'Requesting…' : 'Confirm Request'}
-					</button>
+					<div class="flex gap-2 shrink-0">
+						<button
+							type="button"
+							class="flex-1 rounded-xl border border-border bg-white py-3.5 text-xs font-bold uppercase tracking-wide text-text-primary hover:bg-slate-50 disabled:opacity-50"
+							disabled={!pickup || !destination || pricingLoading || !!pricingError}
+							onclick={saveDraft}
+						>
+							Save for later
+						</button>
+						<button
+							type="button"
+							class="btn-primary flex-1 py-3.5"
+							disabled={!pickup || !destination || requesting || pricingLoading || !!pricingError}
+							onclick={confirmRequest}
+						>
+							{requesting ? 'Requesting…' : 'Confirm Request'}
+						</button>
+					</div>
 				{/if}
 			</div>
 
@@ -370,6 +529,49 @@
 			</div>
 		{/if}
 	</div>
+
+	{#if pickerFor}
+		<button
+			type="button"
+			class="absolute inset-0 z-40 bg-black/40"
+			aria-label="Close place picker"
+			onclick={() => (pickerFor = null)}
+		></button>
+		<div class="absolute inset-x-0 bottom-0 z-50 flex max-h-[80%] flex-col rounded-t-3xl bg-white p-5 shadow-xl">
+			<div class="mb-3 flex shrink-0 items-center justify-between">
+				<h3 class="text-body-lg font-semibold text-text-primary">
+					Choose {pickerFor === 'pickup' ? 'pickup' : 'destination'}
+				</h3>
+				<button type="button" class="text-text-muted hover:text-text-primary" onclick={() => (pickerFor = null)}>✕</button>
+			</div>
+			<input
+				class="field-input mb-3 shrink-0"
+				type="search"
+				placeholder="Search anywhere in the world"
+				bind:value={placeSearch}
+			/>
+			<div class="overflow-y-auto rounded-xl border border-border divide-y divide-border">
+				{#if searching}
+					<p class="p-4 text-center text-caption text-text-muted">Searching…</p>
+				{:else if searchError}
+					<p class="p-4 text-center text-caption text-red-600">{searchError}</p>
+				{:else}
+					{#each searchResults as place, i (place.name + i)}
+						<button
+							type="button"
+							class="w-full p-3 text-left transition hover:bg-slate-50"
+							onclick={() => choosePlace(place)}
+						>
+							<p class="truncate text-body-rg font-semibold text-text-primary">{place.name}</p>
+							<p class="text-caption text-text-muted">{place.lat.toFixed(4)}, {place.lng.toFixed(4)}</p>
+						</button>
+					{:else}
+						<p class="p-4 text-center text-caption text-text-muted">No places match.</p>
+					{/each}
+				{/if}
+			</div>
+		</div>
+	{/if}
 
 	<BottomNav bind:activeTab />
 </div>

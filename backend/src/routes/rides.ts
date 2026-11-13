@@ -13,6 +13,11 @@ const createRideSchema = z.object({
 	vehicleClassId: z.string().min(1),
 	pickup: z.string().min(2).max(200),
 	destination: z.string().min(2).max(200),
+	pickupLat: z.number().optional(),
+	pickupLng: z.number().optional(),
+	destLat: z.number().optional(),
+	destLng: z.number().optional(),
+	driverId: z.number().int().positive().optional(),
 	distanceKm: z.number().min(0),
 	durationMin: z.number().min(0)
 });
@@ -66,6 +71,10 @@ function mapRide(row: Record<string, unknown>): Ride {
 		vehicleClassId: row.vehicle_class_id as string,
 		pickup: row.pickup as string,
 		destination: row.destination as string,
+		pickupLat: (row.pickup_lat as number | null) ?? null,
+		pickupLng: (row.pickup_lng as number | null) ?? null,
+		destLat: (row.dest_lat as number | null) ?? null,
+		destLng: (row.dest_lng as number | null) ?? null,
 		distanceKm: row.distance_km as number,
 		durationMin: row.duration_min as number,
 		estimatedFare: row.estimated_fare as number,
@@ -100,18 +109,30 @@ ridesRouter.post('/', requireAuth, requireRole('tourist'), (req, res) => {
 	const vc = getVehicleClass(body.vehicleClassId);
 	if (!vc) throw err.notFound('Unknown vehicle class.');
 
+	if (body.driverId) {
+		const driver = db
+			.prepare('SELECT user_id FROM drivers WHERE user_id = ? AND verified = 1 AND online = 1')
+			.get(body.driverId);
+		if (!driver) throw err.badRequest('Selected driver is not available.', 'DRIVER_UNAVAILABLE');
+	}
+
 	const config = getConfigRow();
 	const estimatedFare = calculateFare(config, vc, body.distanceKm, body.durationMin);
 	const info = db
 		.prepare(
-			`INSERT INTO rides (user_id, driver_id, vehicle_class_id, pickup, destination, distance_km, duration_min, estimated_fare, status)
-			 VALUES (?, NULL, ?, ?, ?, ?, ?, ?, 'searching')`
+			`INSERT INTO rides (user_id, driver_id, vehicle_class_id, pickup, destination, pickup_lat, pickup_lng, dest_lat, dest_lng, distance_km, duration_min, estimated_fare, status)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'searching')`
 		)
 		.run(
 			req.user!.id,
+			body.driverId ?? null,
 			body.vehicleClassId,
 			body.pickup.trim(),
 			body.destination.trim(),
+			body.pickupLat ?? null,
+			body.pickupLng ?? null,
+			body.destLat ?? null,
+			body.destLng ?? null,
 			body.distanceKm,
 			body.durationMin,
 			estimatedFare
@@ -129,10 +150,12 @@ ridesRouter.get('/', requireAuth, (req, res) => {
 
 // The ride board is driver-facing operational data (rider pickup points,
 // destinations, fares) — same gate as claiming a ride, not just role.
-ridesRouter.get('/available', requireAuth, requireRole('driver'), requireActiveDriver, (_req, res) => {
+ridesRouter.get('/available', requireAuth, requireRole('driver'), requireActiveDriver, (req, res) => {
 	const rows = db
-		.prepare("SELECT * FROM rides WHERE status = 'searching' AND driver_id IS NULL ORDER BY id DESC")
-		.all();
+		.prepare(
+			"SELECT * FROM rides WHERE status = 'searching' AND (driver_id IS NULL OR driver_id = ?) ORDER BY id DESC"
+		)
+		.all(req.user!.id);
 	res.json({ rides: rows.map((r) => mapRide(r as Record<string, unknown>)) });
 });
 
@@ -167,9 +190,9 @@ ridesRouter.post('/:id/accept', requireAuth, requireRole('driver'), requireActiv
 	const info = db
 		.prepare(
 			`UPDATE rides SET driver_id = ?, status = 'active', updated_at = datetime('now')
-			 WHERE id = ? AND status = 'searching' AND driver_id IS NULL`
+			 WHERE id = ? AND status = 'searching' AND (driver_id IS NULL OR driver_id = ?)`
 		)
-		.run(req.user!.id, id);
+		.run(req.user!.id, id, req.user!.id);
 	if (info.changes === 0) {
 		const ride = loadRide(id);
 		if (!ride) throw err.notFound('Ride not found.');

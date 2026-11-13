@@ -90,6 +90,10 @@ CREATE TABLE IF NOT EXISTS rides (
 	vehicle_class_id TEXT NOT NULL REFERENCES vehicle_classes(id),
 	pickup TEXT NOT NULL,
 	destination TEXT NOT NULL,
+	pickup_lat REAL,
+	pickup_lng REAL,
+	dest_lat REAL,
+	dest_lng REAL,
 	distance_km REAL NOT NULL DEFAULT 0,
 	duration_min REAL NOT NULL DEFAULT 0,
 	estimated_fare REAL NOT NULL,
@@ -127,6 +131,19 @@ const otpColumns = db.prepare('PRAGMA table_info(phone_otps)').all() as Array<{ 
 if (!otpColumns.some((c) => c.name === 'user_id')) {
 	db.exec('ALTER TABLE phone_otps ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
 }
+
+// Migration: ride pickup/destination coordinates were added for the bookings
+// draft flow. Additive and nullable, so a plain ALTER is enough.
+function addColumnIfMissing(table: string, column: string, ddl: string) {
+	const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+	if (!columns.some((c) => c.name === column)) {
+		db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+	}
+}
+addColumnIfMissing('rides', 'pickup_lat', 'REAL');
+addColumnIfMissing('rides', 'pickup_lng', 'REAL');
+addColumnIfMissing('rides', 'dest_lat', 'REAL');
+addColumnIfMissing('rides', 'dest_lng', 'REAL');
 
 // Migration: phone-first identity. Pre-existing databases have email NOT NULL
 // (and may lack phone_verified). Rebuild users to allow email-less phone-only
